@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flickr8k-visualizer-api"
+version = "0.1.0"
+description = "Local API and data preparation tools for the Flickr8k visualizer"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pillow>=11,<13",
+  "pyarrow>=17,<22",
+  "uvicorn[standard]>=0.32,<1",
+]
+
+[project.scripts]
+prepare-flickr8k = "flickr8k_visualizer.ingestion:main"
+
+[tool.setuptools.package-data]
+flickr8k_visualizer = ["flickr8k.lock.json"]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.3,<9",
+  "ruff>=0.8,<1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

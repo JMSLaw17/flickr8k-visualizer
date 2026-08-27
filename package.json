@@ -1,0 +1,33 @@
+{
+  "name": "flickr8k-visualizer",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "uv run --project apps/api uvicorn flickr8k_visualizer.main:app --reload --port 8000",
+    "dev:web": "npm run dev --workspace apps/web",
+    "prepare:data": "uv run --project apps/api prepare-flickr8k",
+    "test": "npm run test:api && npm run test:web",
+    "test:api": "uv run --project apps/api --extra dev pytest apps/api/tests",
+    "test:web": "npm run test --workspace apps/web",
+    "lint": "npm run lint:api && npm run lint:web && npm run lint:styles",
+    "lint:api": "uv run --project apps/api --extra dev ruff check apps/api && uv run --project apps/api --extra dev ruff format --check apps/api",
+    "lint:web": "npm run lint --workspace apps/web",
+    "lint:styles": "stylelint \"apps/web/src/**/*.css\"",
+    "lint:fix": "npm run lint:fix:api && npm run lint:fix:web && npm run lint:fix:styles",
+    "lint:fix:api": "uv run --project apps/api --extra dev ruff check --fix apps/api && uv run --project apps/api --extra dev ruff format apps/api",
+    "lint:fix:web": "npm run lint:fix --workspace apps/web",
+    "lint:fix:styles": "stylelint \"apps/web/src/**/*.css\" --fix",
+    "build": "npm run build --workspace apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "stylelint": "^17.14.1",
+    "stylelint-config-standard": "^40.0.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  }
+}

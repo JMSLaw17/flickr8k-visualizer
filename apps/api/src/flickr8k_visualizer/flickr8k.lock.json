@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "repo_id": "jxie/flickr8k",
+  "revision": "56f58c967835f7c508d684f36bd7897cca9d7634",
+  "shards": [
+    {
+      "split": "test",
+      "path": "data/test-00000-of-00001-42a2661d12c73e48.parquet",
+      "size_bytes": 136773352,
+      "sha256": "f3bc4c3548ec1d9bb3c445c871cfcd3aca6003e3d4786e404fc9356b5215410d",
+      "row_count": 1000
+    },
+    {
+      "split": "train",
+      "path": "data/train-00000-of-00002-2f8f6bfa852eac4b.parquet",
+      "size_bytes": 414154595,
+      "sha256": "68bc2d97c6021e575bdfd9aa8d364f865c8ad7840cf3ddc06a1811c2a0accc7e",
+      "row_count": 3000
+    },
+    {
+      "split": "train",
+      "path": "data/train-00001-of-00002-2173151d8cd6c7fb.parquet",
+      "size_bytes": 414482115,
+      "sha256": "55afbb11f6916aa636ce34e727c3a0194ea40381e02c20f9fa612fde5b280500",
+      "row_count": 3000
+    },
+    {
+      "split": "validation",
+      "path": "data/validation-00000-of-00001-7025a2b596f14b7b.parquet",
+      "size_bytes": 137856237,
+      "sha256": "2470e49d96fb37e19c8a1d29056623c84ed41c3760a12747e120695aa0c44ad4",
+      "row_count": 1000
+    }
+  ]
+}

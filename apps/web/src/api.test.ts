@@ -1,0 +1,77 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { getSample, listSamples, type SampleDetail, type SampleSummary } from './api'
+
+const summary: SampleSummary = {
+  id: 'sample-1',
+  source_id: '123456789.jpg',
+  split: 'train',
+  width: 500,
+  height: 375,
+  thumbnail_url: '/media/thumbnails/123456789.jpg',
+  caption: 'A dog runs through a field.',
+}
+
+const detail: SampleDetail = {
+  ...summary,
+  content_sha256: 'abc123',
+  mime_type: 'image/jpeg',
+  file_size_bytes: 42_000,
+  image_url: '/media/images/123456789.jpg',
+  captions: ['A dog runs through a field.'],
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('dataset API', () => {
+  it('requests a filtered page with explicit pagination', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ total: 1, limit: 24, offset: 48, items: [summary] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await listSamples({ limit: 24, offset: 48, split: 'test' })
+
+    expect(result.items).toEqual([summary])
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/samples?limit=24&offset=48&split=test',
+      { signal: undefined },
+    )
+  })
+
+  it('encodes stable sample IDs in detail requests', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(detail), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getSample('folder/image 1.jpg')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/samples/folder%2Fimage%201.jpg',
+      { signal: undefined },
+    )
+  })
+
+  it('uses the backend error detail when a request fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: 'Sample not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+
+    await expect(getSample('missing')).rejects.toThrow('Sample not found')
+  })
+})
