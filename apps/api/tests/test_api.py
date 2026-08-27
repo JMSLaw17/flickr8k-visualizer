@@ -47,6 +47,8 @@ def client(tmp_path: Path) -> TestClient:
     (thumbnail_dir / "first image.jpg").write_bytes(b"thumbnail-one")
     (image_dir / "second.jpg").write_bytes(b"original-two")
     (thumbnail_dir / "second.jpg").write_bytes(b"thumbnail-two")
+    (image_dir / "third.jpg").write_bytes(b"original-three")
+    (thumbnail_dir / "third.jpg").write_bytes(b"thumbnail-three")
 
     initialize_database(database_path)
     with connect_database(database_path) as connection:
@@ -82,6 +84,18 @@ def client(tmp_path: Path) -> TestClient:
                     "images/second.jpg",
                     "thumbnails/second.jpg",
                 ),
+                (
+                    "sample-c",
+                    "source-c",
+                    "validation",
+                    "c" * 64,
+                    320,
+                    240,
+                    "image/jpeg",
+                    14,
+                    "images/third.jpg",
+                    "thumbnails/third.jpg",
+                ),
             ],
         )
         connection.executemany(
@@ -89,7 +103,9 @@ def client(tmp_path: Path) -> TestClient:
             [
                 ("sample-a", 1, "The second caption."),
                 ("sample-a", 0, "The first caption."),
+                ("sample-b", 1, "A second description."),
                 ("sample-b", 0, "Another image."),
+                ("sample-c", 0, "A validation image."),
             ],
         )
 
@@ -115,7 +131,7 @@ def test_lists_paginated_samples(client: TestClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
+    assert body["total"] == 3
     assert body["limit"] == 1
     assert body["offset"] == 1
     assert [item["id"] for item in body["items"]] == ["sample-b"]
@@ -138,7 +154,26 @@ def test_filters_samples_and_orders_captions(client: TestClient) -> None:
     }
 
 
-def test_gets_one_sample_and_returns_not_found(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    ("split", "expected_id"),
+    [
+        ("validation", "sample-c"),
+        ("test", "sample-b"),
+    ],
+)
+def test_filters_remaining_supported_splits(
+    client: TestClient, split: str, expected_id: str
+) -> None:
+    response = client.get("/api/samples", params={"split": split})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == [expected_id]
+    assert body["items"][0]["split"] == split
+
+
+def test_gets_one_sample(client: TestClient) -> None:
     response = client.get("/api/samples/sample-b")
 
     assert response.status_code == 200
@@ -153,9 +188,15 @@ def test_gets_one_sample_and_returns_not_found(client: TestClient) -> None:
         "file_size_bytes": 12,
         "image_url": "/media/images/second.jpg",
         "thumbnail_url": "/media/thumbnails/second.jpg",
-        "captions": ["Another image."],
+        "captions": ["Another image.", "A second description."],
     }
-    assert client.get("/api/samples/missing").status_code == 404
+
+
+def test_returns_not_found_for_missing_sample(client: TestClient) -> None:
+    response = client.get("/api/samples/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Sample not found"}
 
 
 @pytest.mark.parametrize(
@@ -172,9 +213,24 @@ def test_serves_local_media(client: TestClient, path: str, content: bytes) -> No
     assert response.content == content
 
 
-def test_validates_pagination(client: TestClient) -> None:
-    assert client.get("/api/samples", params={"limit": 0}).status_code == 422
-    assert client.get("/api/samples", params={"offset": -1}).status_code == 422
+def test_accepts_maximum_limit_and_offset_at_end(client: TestClient) -> None:
+    response = client.get("/api/samples", params={"limit": 100, "offset": 3})
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 3, "limit": 100, "offset": 3, "items": []}
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+    ],
+    ids=["zero-limit", "limit-above-maximum", "negative-offset"],
+)
+def test_rejects_invalid_pagination(client: TestClient, params: dict[str, int]) -> None:
+    assert client.get("/api/samples", params=params).status_code == 422
 
 
 def test_rejects_unknown_split(client: TestClient) -> None:
@@ -217,6 +273,8 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         assert summary_schema["properties"][field]["type"] == expected_type
     for field, expected_type in expected_detail_types.items():
         assert detail_schema["properties"][field]["type"] == expected_type
+    assert expected_summary_types.keys() <= set(summary_schema["required"])
+    assert expected_detail_types.keys() <= set(detail_schema["required"])
 
 
 def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:

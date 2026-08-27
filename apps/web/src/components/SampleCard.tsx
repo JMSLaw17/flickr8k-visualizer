@@ -11,7 +11,15 @@ function SampleCard({ sample, onOpen }: SampleCardProps) {
   const caption = sample.caption || 'No caption available'
 
   return (
-    <button className="sample-card" type="button" onClick={onOpen}>
+    <button
+      className="sample-card"
+      type="button"
+      onClick={(event) => {
+        // Safari and Firefox skip focusing a clicked button; the dialog restores focus here.
+        event.currentTarget.focus({ preventScroll: true })
+        onOpen()
+      }}
+    >
       <div className="sample-card__media">
         <DatasetImage className="sample-card__image" src={sample.thumbnail_url} alt="" />
         <span className={`split-badge split-badge--${sample.split}`}>
