@@ -31,10 +31,82 @@ export interface SamplePage {
   items: SampleSummary[]
 }
 
-export interface ListSamplesParams {
+// Numeric ranges are half-open, matching the API: min <= value < max.
+export interface SampleFilters {
+  split?: DatasetSplit
+  term?: string
+  min_words?: number
+  max_words?: number
+  min_width?: number
+  max_width?: number
+  min_height?: number
+  max_height?: number
+  min_ratio?: number
+  max_ratio?: number
+}
+
+export const FILTER_KEYS = [
+  'split',
+  'term',
+  'min_words',
+  'max_words',
+  'min_width',
+  'max_width',
+  'min_height',
+  'max_height',
+  'min_ratio',
+  'max_ratio',
+] as const satisfies readonly (keyof SampleFilters)[]
+
+export interface ListSamplesParams extends SampleFilters {
   limit: number
   offset: number
-  split?: DatasetSplit
+}
+
+export interface DistributionBin {
+  label: string
+  count: number
+  min: number
+  max: number | null
+}
+
+export interface TermCount {
+  term: string
+  count: number
+}
+
+export interface DuplicateMember {
+  id: string
+  source_id: string
+  split: DatasetSplit
+  thumbnail_url: string
+}
+
+export interface DuplicateGroup {
+  content_sha256: string
+  sample_count: number
+  splits: DatasetSplit[]
+  cross_split: boolean
+  samples: DuplicateMember[]
+}
+
+export interface DuplicateSummary {
+  group_count: number
+  affected_sample_count: number
+  cross_split_group_count: number
+  groups: DuplicateGroup[]
+}
+
+export interface DatasetOverview {
+  sample_count: number
+  caption_count: number
+  split_counts: Record<DatasetSplit, number>
+  caption_lengths: DistributionBin[]
+  top_terms: TermCount[]
+  widths: DistributionBin[]
+  heights: DistributionBin[]
+  aspect_ratios: DistributionBin[]
+  duplicates: DuplicateSummary
 }
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -57,7 +129,7 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export function listSamples(
-  { limit, offset, split }: ListSamplesParams,
+  { limit, offset, ...filters }: ListSamplesParams,
   signal?: AbortSignal,
 ): Promise<SamplePage> {
   const query = new URLSearchParams({
@@ -65,11 +137,18 @@ export function listSamples(
     offset: String(offset),
   })
 
-  if (split) query.set('split', split)
+  for (const key of FILTER_KEYS) {
+    const value = filters[key]
+    if (value !== undefined) query.set(key, String(value))
+  }
 
   return request<SamplePage>(`/api/samples?${query}`, signal)
 }
 
 export function getSample(id: string, signal?: AbortSignal): Promise<SampleDetail> {
   return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}`, signal)
+}
+
+export function getOverview(signal?: AbortSignal): Promise<DatasetOverview> {
+  return request<DatasetOverview>('/api/overview', signal)
 }

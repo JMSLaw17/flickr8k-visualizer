@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getSample, listSamples, type SampleDetail, type SampleSummary } from './api'
+import {
+  getOverview,
+  getSample,
+  listSamples,
+  type SampleDetail,
+  type SampleSummary,
+} from './api'
 
 const summary: SampleSummary = {
   id: 'sample-1',
@@ -42,6 +48,45 @@ describe('dataset API', () => {
       '/api/samples?limit=24&offset=48&split=test',
       { signal: undefined },
     )
+  })
+
+  it('serializes overview filters in a stable query order', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ total: 0, limit: 24, offset: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listSamples({
+      limit: 24,
+      offset: 0,
+      max_ratio: 1.5,
+      min_ratio: 1.25,
+      term: 'dog',
+      min_words: 9,
+      max_words: 10,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/samples?limit=24&offset=0&term=dog&min_words=9&max_words=10&min_ratio=1.25&max_ratio=1.5',
+      { signal: undefined },
+    )
+  })
+
+  it('requests the dataset overview', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ sample_count: 0 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getOverview()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/overview', { signal: undefined })
   })
 
   it('encodes stable sample IDs in detail requests', async () => {

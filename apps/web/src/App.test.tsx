@@ -1,11 +1,20 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import App from './App'
 import type { SampleDetail, SampleSummary } from './api'
 import DetailPanel from './components/DetailPanel'
+
+function renderApp(initialEntry = '/') {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <App />
+    </MemoryRouter>,
+  )
+}
 
 const summary: SampleSummary = {
   id: 'stable-sample-id',
@@ -50,6 +59,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   document.body.style.overflow = ''
+  document.title = 'Flickr8k Explorer'
 })
 
 function StrictModeDetailHarness() {
@@ -72,7 +82,7 @@ it('shows every caption and the original at its exact dimensions', async () => {
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
 
   const sampleCard = await screen.findByRole('button', {
     name: /a dog runs through a green field/i,
@@ -132,7 +142,7 @@ it('closes and aborts a deferred detail request', async () => {
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
 
   const sampleCard = await screen.findByRole('button', {
     name: /a dog runs through a green field/i,
@@ -200,7 +210,7 @@ it('retries detail errors and handles a failed original image', async () => {
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
   await user.click(
     await screen.findByRole('button', { name: /a dog runs through a green field/i }),
   )
@@ -258,7 +268,7 @@ it('paginates, resets a changed filter, and preserves gallery state after detail
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
 
   await screen.findByRole('button', { name: /a dog runs through a green field/i })
   expect(screen.getByRole('button', { name: /← previous/i })).toBeDisabled()
@@ -315,7 +325,7 @@ it('retries a failed gallery request', async () => {
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Dataset temporarily unavailable',
@@ -335,19 +345,19 @@ it('shows an initial unfiltered empty state without a clear-filter action', asyn
   const fetchMock = vi.fn().mockResolvedValueOnce(pageResponse([]))
   vi.stubGlobal('fetch', fetchMock)
 
-  render(<App />)
+  renderApp()
 
   expect(await screen.findByText('No samples found')).toBeInTheDocument()
   expect(screen.getByLabelText('Dataset split')).toHaveValue('all')
   expect(
-    screen.queryByRole('button', { name: 'View all splits' }),
+    screen.queryByRole('button', { name: 'Clear filters' }),
   ).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/samples?limit=24&offset=0', {
     signal: expect.any(AbortSignal),
   })
 })
 
-it('returns from an empty filtered result to all splits', async () => {
+it('returns from an empty filtered result to the unfiltered gallery', async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(pageResponse([summary]))
@@ -356,14 +366,14 @@ it('returns from an empty filtered result to all splits', async () => {
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
 
-  render(<App />)
+  renderApp()
 
   await screen.findByRole('button', { name: /a dog runs through a green field/i })
   await user.selectOptions(screen.getByLabelText('Dataset split'), 'validation')
 
   expect(await screen.findByText('No samples found')).toBeInTheDocument()
   expect(screen.getByLabelText('Dataset split')).toHaveValue('validation')
-  await user.click(screen.getByRole('button', { name: 'View all splits' }))
+  await user.click(screen.getByRole('button', { name: 'Clear filters' }))
 
   expect(
     await screen.findByRole('button', { name: /a dog runs through a green field/i }),
@@ -373,4 +383,95 @@ it('returns from an empty filtered result to all splits', async () => {
     signal: expect.any(AbortSignal),
   })
   expect(fetchMock).toHaveBeenCalledTimes(3)
+})
+
+it('applies URL filters to the request and removes them through chips', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(pageResponse([summary]))
+    .mockResolvedValueOnce(pageResponse([summary]))
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?term=dog&min_ratio=1.25&max_ratio=1.5&offset=24')
+
+  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/samples?limit=24&offset=24&term=dog&min_ratio=1.25&max_ratio=1.5',
+    { signal: expect.any(AbortSignal) },
+  )
+  expect(screen.getByText('Captions contain “dog”')).toBeInTheDocument()
+  expect(screen.getByText('Aspect ratio: 1.25–1.5')).toBeInTheDocument()
+
+  await user.click(
+    screen.getByRole('button', { name: 'Remove filter: Captions contain “dog”' }),
+  )
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/samples?limit=24&offset=0&min_ratio=1.25&max_ratio=1.5',
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+  expect(screen.queryByText('Captions contain “dog”')).not.toBeInTheDocument()
+  expect(screen.getByText('Aspect ratio: 1.25–1.5')).toBeInTheDocument()
+})
+
+it('moves focus and title across page and chart navigation', async () => {
+  const overview = {
+    sample_count: 1,
+    caption_count: 5,
+    split_counts: { train: 1, validation: 0, test: 0 },
+    caption_lengths: [],
+    top_terms: [],
+    widths: [],
+    heights: [],
+    aspect_ratios: [],
+    duplicates: {
+      group_count: 0,
+      affected_sample_count: 0,
+      cross_split_group_count: 0,
+      groups: [],
+    },
+  }
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input).startsWith('/api/overview')
+        ? jsonResponse(overview)
+        : pageResponse([summary]),
+    ),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp()
+
+  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  const initialHeading = screen.getByRole('heading', { name: 'Dataset samples' })
+  expect(initialHeading).not.toHaveFocus()
+  expect(document.title).toBe('Browse · Flickr8k Explorer')
+
+  await user.click(screen.getByRole('link', { name: 'Overview' }))
+
+  const overviewHeading = await screen.findByRole('heading', {
+    name: 'Dataset overview',
+  })
+  await waitFor(() => expect(overviewHeading).toHaveFocus())
+  expect(document.title).toBe('Dataset overview · Flickr8k Explorer')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/overview', {
+    signal: expect.any(AbortSignal),
+  })
+  expect(screen.getByText('No exact-duplicate images in this dataset.')).toBeInTheDocument()
+
+  await user.click(screen.getByRole('link', { name: 'Train 1' }))
+
+  const galleryHeading = await screen.findByRole('heading', {
+    name: 'Dataset samples',
+  })
+  await waitFor(() => expect(galleryHeading).toHaveFocus())
+  expect(document.title).toBe('Browse · Flickr8k Explorer')
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    '/api/samples?limit=24&offset=0&split=train',
+    { signal: expect.any(AbortSignal) },
+  )
 })

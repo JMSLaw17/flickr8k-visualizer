@@ -1,7 +1,7 @@
-from __future__ import annotations
-
+# No `from __future__ import annotations` here: FastAPI needs evaluated
+# annotations to expand the SampleFilters query model into query parameters.
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -11,8 +11,30 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .dataset_lock import prepared_identity_matches_lock
-from .db import DatabaseUnavailableError, get_sample, list_samples
-from .models import DatasetSplit, Health, SampleDetail, SampleList, SampleSummary
+from .db import (
+    DatabaseUnavailableError,
+    get_overview_source,
+    get_sample,
+    list_samples,
+)
+from .models import (
+    SPLIT_ORDER,
+    DatasetOverview,
+    Health,
+    SampleDetail,
+    SampleList,
+    SampleQuery,
+    SampleSummary,
+)
+from .stats import (
+    ASPECT_RATIO_BIN_WIDTH,
+    ASPECT_RATIO_OPEN_END,
+    CAPTION_LENGTH_OPEN_END,
+    DIMENSION_BIN_WIDTH,
+    binned_distribution,
+    summarize_duplicates,
+    top_caption_terms,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -41,23 +63,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Health(status="ok")
 
     @app.get("/api/samples", response_model=SampleList)
-    def samples(
-        limit: int = Query(default=24, ge=1, le=100),
-        offset: int = Query(default=0, ge=0),
-        split: DatasetSplit | None = None,
-    ) -> SampleList:
+    def samples(query: Annotated[SampleQuery, Query()]) -> SampleList:
         _require_prepared(settings)
         total, records = list_samples(
             settings.database_path,
-            limit=limit,
-            offset=offset,
-            split=split,
+            limit=query.limit,
+            offset=query.offset,
+            filters=query,
         )
         return SampleList(
             total=total,
-            limit=limit,
-            offset=offset,
+            limit=query.limit,
+            offset=query.offset,
             items=[_to_summary(record) for record in records],
+        )
+
+    @app.get("/api/overview", response_model=DatasetOverview)
+    def overview() -> DatasetOverview:
+        _require_prepared(settings)
+        source = get_overview_source(settings.database_path)
+        split_counts = source["split_counts"]
+        duplicate_members = [
+            {
+                **member,
+                "thumbnail_url": _media_url(member["thumbnail_path"], "thumbnails"),
+            }
+            for member in source["duplicate_members"]
+        ]
+        return DatasetOverview(
+            sample_count=sum(split_counts.values()),
+            caption_count=sum(source["caption_token_counts"].values()),
+            split_counts={split: split_counts.get(split, 0) for split in SPLIT_ORDER},
+            caption_lengths=binned_distribution(
+                source["caption_token_counts"],
+                bin_width=1,
+                open_end_start=CAPTION_LENGTH_OPEN_END,
+            ),
+            top_terms=top_caption_terms(source["captions"]),
+            widths=binned_distribution(
+                source["width_counts"], bin_width=DIMENSION_BIN_WIDTH
+            ),
+            heights=binned_distribution(
+                source["height_counts"], bin_width=DIMENSION_BIN_WIDTH
+            ),
+            aspect_ratios=binned_distribution(
+                source["ratio_counts"],
+                bin_width=ASPECT_RATIO_BIN_WIDTH,
+                open_end_start=ASPECT_RATIO_OPEN_END,
+            ),
+            duplicates=summarize_duplicates(duplicate_members),
         )
 
     @app.get("/api/samples/{sample_id}", response_model=SampleDetail)

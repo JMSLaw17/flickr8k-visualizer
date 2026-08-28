@@ -1,0 +1,98 @@
+import {
+  FILTER_KEYS,
+  type DatasetSplit,
+  type DistributionBin,
+  type SampleFilters,
+} from './api'
+
+export const SPLITS: readonly DatasetSplit[] = ['train', 'validation', 'test']
+
+type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'term'>
+
+export function parseSampleFilters(params: URLSearchParams): SampleFilters {
+  const filters: SampleFilters = {}
+
+  const split = params.get('split')
+  if (split && (SPLITS as readonly string[]).includes(split)) {
+    filters.split = split as DatasetSplit
+  }
+
+  const term = params.get('term')
+  if (term) filters.term = term
+
+  for (const key of FILTER_KEYS) {
+    if (key === 'split' || key === 'term') continue
+    const value = Number(params.get(key))
+    if (Number.isFinite(value) && value > 0) filters[key] = value
+  }
+
+  return filters
+}
+
+export function parseOffset(params: URLSearchParams): number {
+  const value = Number(params.get('offset'))
+  return Number.isInteger(value) && value > 0 ? value : 0
+}
+
+/** Gallery path with the given filters encoded as search parameters. */
+export function galleryPath(filters: SampleFilters): string {
+  const query = new URLSearchParams()
+  for (const key of FILTER_KEYS) {
+    const value = filters[key]
+    if (value !== undefined) query.set(key, String(value))
+  }
+  const encoded = query.toString()
+  return encoded ? `/?${encoded}` : '/'
+}
+
+/** Filters selecting one histogram bin; open-ended bins omit the upper bound. */
+export function binFilters(
+  bin: DistributionBin,
+  minKey: NumericFilterKey,
+  maxKey: NumericFilterKey,
+): SampleFilters {
+  const filters: SampleFilters = {}
+  filters[minKey] = bin.min
+  if (bin.max !== null) filters[maxKey] = bin.max
+  return filters
+}
+
+export interface FilterChip {
+  label: string
+  keys: string[]
+}
+
+/** Removable chips describing every non-split filter in effect. */
+export function filterChips(filters: SampleFilters): FilterChip[] {
+  const chips: FilterChip[] = []
+
+  if (filters.term) {
+    chips.push({ label: `Captions contain “${filters.term}”`, keys: ['term'] })
+  }
+
+  const ranges: [string, NumericFilterKey, NumericFilterKey, string, boolean][] = [
+    ['Caption length', 'min_words', 'max_words', ' tokens', true],
+    ['Width', 'min_width', 'max_width', ' px', true],
+    ['Height', 'min_height', 'max_height', ' px', true],
+    ['Aspect ratio', 'min_ratio', 'max_ratio', '', false],
+  ]
+  for (const [name, minKey, maxKey, unit, integer] of ranges) {
+    const range = describeRange(filters[minKey], filters[maxKey], integer)
+    if (range) chips.push({ label: `${name}: ${range}${unit}`, keys: [minKey, maxKey] })
+  }
+
+  return chips
+}
+
+function describeRange(
+  min: number | undefined,
+  max: number | undefined,
+  integer: boolean,
+): string | null {
+  if (min === undefined && max === undefined) return null
+  if (min === undefined) return `under ${max}`
+  if (max === undefined) return `${min}+`
+  // Numeric filters are half-open ranges; show integer ones inclusively.
+  if (integer) return max - min === 1 ? `${min}` : `${min}–${max - 1}`
+  return `${min}–${max}`
+}

@@ -13,6 +13,7 @@ the code.
 - `apps/api`: FastAPI, SQLite access, ingestion, and Pytest
 - `apps/web`: React, TypeScript, Vite, and Vitest
 - `apps/web/src/components`: reusable UI components
+- `apps/web/src/pages`: routed pages (gallery, overview)
 - `apps/web/src/api.ts`: frontend API calls
 - `datasets/flickr8k.lock.json`: tracked dataset revision and shard integrity metadata
 - `data/flickr8k`: generated dataset artifacts; ignored by Git

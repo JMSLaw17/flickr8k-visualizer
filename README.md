@@ -1,8 +1,21 @@
 # Flickr8k Visualizer
 
-A local-first browser for inspecting the Flickr8k computer vision dataset. Phase 1 provides a React gallery, a FastAPI backend, and a one-time ingestion command that turns the pinned source Parquet files into local images, thumbnails, and SQLite metadata.
+A local-first browser for inspecting the Flickr8k computer vision dataset: a React frontend, a FastAPI backend, and a one-time ingestion command that turns the pinned source Parquet files into local images, thumbnails, and SQLite metadata.
 
 After preparation, the running application does not contact Hugging Face or any other remote service.
+
+## Features
+
+- **Browse**: a paginated thumbnail gallery with a split filter and a detail
+  drawer showing every caption and the stored image metadata.
+- **Overview**: sample counts by split, the caption-length distribution, common
+  caption terms, image width/height distributions, and the aspect-ratio
+  distribution. Every chart value links to the gallery filtered to the matching
+  samples, so the shape of the dataset is always one click from the underlying
+  images.
+- **Data quality**: exact-duplicate groups detected by content SHA-256, the
+  number of affected images, cross-split duplicate groups highlighted
+  separately, and one-click access to each duplicate's detail view.
 
 ## Prerequisites
 

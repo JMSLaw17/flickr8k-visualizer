@@ -6,7 +6,11 @@ from fastapi.testclient import TestClient
 
 from flickr8k_visualizer.config import Settings
 from flickr8k_visualizer.dataset_lock import load_dataset_lock
-from flickr8k_visualizer.db import connect_database, initialize_database
+from flickr8k_visualizer.db import (
+    connect_database,
+    initialize_database,
+    materialize_duplicate_groups,
+)
 from flickr8k_visualizer.main import create_app
 
 
@@ -277,6 +281,232 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
     assert expected_detail_types.keys() <= set(detail_schema["required"])
 
 
+@pytest.mark.parametrize(
+    ("params", "expected_ids"),
+    [
+        ({"term": "image"}, ["sample-b", "sample-c"]),
+        ({"term": "IMAGE"}, ["sample-b", "sample-c"]),
+        ({"term": "%"}, []),
+        ({"term": "_"}, []),
+        ({"max_words": 3}, ["sample-b"]),
+        ({"min_words": 4}, []),
+        ({"min_words": 3, "max_words": 4}, ["sample-a", "sample-b", "sample-c"]),
+        ({"min_width": 400, "max_width": 700}, ["sample-a"]),
+        ({"min_height": 500}, ["sample-b"]),
+        ({"min_ratio": 1.3, "max_ratio": 1.4}, ["sample-a", "sample-b", "sample-c"]),
+        ({"max_ratio": 1.3}, []),
+        ({"split": "test", "term": "image"}, ["sample-b"]),
+    ],
+    ids=[
+        "term",
+        "term-case-insensitive",
+        "term-escapes-percent",
+        "term-escapes-underscore",
+        "max-words",
+        "min-words",
+        "words-range",
+        "width-range",
+        "min-height",
+        "ratio-range",
+        "max-ratio",
+        "split-and-term",
+    ],
+)
+def test_filters_samples_by_caption_and_geometry(
+    client: TestClient, params: dict[str, object], expected_ids: list[str]
+) -> None:
+    response = client.get("/api/samples", params=params)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == len(expected_ids)
+    assert [item["id"] for item in body["items"]] == expected_ids
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"term": ""},
+        {"min_words": 0},
+        {"min_ratio": 0},
+        {"max_ratio": -1},
+    ],
+    ids=["empty-term", "zero-min-words", "zero-min-ratio", "negative-max-ratio"],
+)
+def test_rejects_invalid_filters(client: TestClient, params: dict[str, object]) -> None:
+    assert client.get("/api/samples", params=params).status_code == 422
+
+
+@pytest.fixture
+def overview_client(tmp_path: Path) -> TestClient:
+    data_dir = tmp_path / "data"
+    database_path = data_dir / "flickr8k.sqlite3"
+    _write_prepared_identity(data_dir)
+    initialize_database(database_path)
+    with connect_database(database_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO samples (
+                id, source_id, split, content_sha256, width, height,
+                mime_type, file_size_bytes, original_path, thumbnail_path
+            ) VALUES (?, ?, ?, ?, ?, ?, 'image/jpeg', 10, ?, ?)
+            """,
+            [
+                (
+                    "dup-a1",
+                    "a1.jpg",
+                    "train",
+                    "a" * 64,
+                    500,
+                    375,
+                    "images/a1.jpg",
+                    "thumbnails/a1.webp",
+                ),
+                (
+                    "dup-a2",
+                    "a2.jpg",
+                    "test",
+                    "a" * 64,
+                    500,
+                    375,
+                    "images/a2.jpg",
+                    "thumbnails/a2.webp",
+                ),
+                (
+                    "solo-b",
+                    "b.jpg",
+                    "train",
+                    "b" * 64,
+                    333,
+                    500,
+                    "images/b.jpg",
+                    "thumbnails/b.webp",
+                ),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO captions (sample_id, position, text) VALUES (?, ?, ?)",
+            [
+                ("dup-a1", 0, "A brown dog runs ."),
+                ("dup-a1", 1, "A\tman watches a woman"),
+                ("dup-a2", 0, "Dog splashing in water"),
+                ("solo-b", 0, "Two dogs run"),
+                ("solo-b", 1, "A  woman walks"),
+            ],
+        )
+        materialize_duplicate_groups(connection)
+
+    settings = Settings(
+        data_dir=data_dir,
+        database_path=database_path,
+        manifest_path=data_dir / "manifest.json",
+        cors_origins=(),
+    )
+    with TestClient(create_app(settings)) as test_client:
+        yield test_client
+
+
+def test_overview_reports_distributions_and_duplicates(
+    overview_client: TestClient,
+) -> None:
+    response = overview_client.get("/api/overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sample_count"] == 3
+    assert body["caption_count"] == 5
+    assert body["split_counts"] == {"train": 2, "validation": 0, "test": 1}
+    assert body["caption_lengths"] == [
+        {"label": "3", "count": 2, "min": 3, "max": 4},
+        {"label": "4", "count": 1, "min": 4, "max": 5},
+        {"label": "5", "count": 2, "min": 5, "max": 6},
+    ]
+    assert body["top_terms"][:2] == [
+        {"term": "dog", "count": 2},
+        {"term": "woman", "count": 2},
+    ]
+    assert body["widths"] == [
+        {"label": "300–349", "count": 1, "min": 300, "max": 350},
+        {"label": "350–399", "count": 0, "min": 350, "max": 400},
+        {"label": "400–449", "count": 0, "min": 400, "max": 450},
+        {"label": "450–499", "count": 0, "min": 450, "max": 500},
+        {"label": "500–549", "count": 2, "min": 500, "max": 550},
+    ]
+    assert [(bin["label"], bin["count"]) for bin in body["heights"]] == [
+        ("350–399", 2),
+        ("400–449", 0),
+        ("450–499", 0),
+        ("500–549", 1),
+    ]
+    assert body["aspect_ratios"] == [
+        {"label": "0.5–0.75", "count": 1, "min": 0.5, "max": 0.75},
+        {"label": "0.75–1", "count": 0, "min": 0.75, "max": 1.0},
+        {"label": "1–1.25", "count": 0, "min": 1.0, "max": 1.25},
+        {"label": "1.25–1.5", "count": 2, "min": 1.25, "max": 1.5},
+    ]
+    assert body["duplicates"] == {
+        "group_count": 1,
+        "affected_sample_count": 2,
+        "cross_split_group_count": 1,
+        "groups": [
+            {
+                "content_sha256": "a" * 64,
+                "sample_count": 2,
+                "splits": ["train", "test"],
+                "cross_split": True,
+                "samples": [
+                    {
+                        "id": "dup-a1",
+                        "source_id": "a1.jpg",
+                        "split": "train",
+                        "thumbnail_url": "/media/thumbnails/a1.webp",
+                    },
+                    {
+                        "id": "dup-a2",
+                        "source_id": "a2.jpg",
+                        "split": "test",
+                        "thumbnail_url": "/media/thumbnails/a2.webp",
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def test_overview_filters_link_back_to_matching_gallery_pages(
+    overview_client: TestClient,
+) -> None:
+    body = overview_client.get("/api/overview").json()
+    peak_ratio_bin = max(body["aspect_ratios"], key=lambda bin: bin["count"])
+
+    response = overview_client.get(
+        "/api/samples",
+        params={"min_ratio": peak_ratio_bin["min"], "max_ratio": peak_ratio_bin["max"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == peak_ratio_bin["count"]
+
+
+@pytest.mark.parametrize(
+    ("term", "expected_ids"),
+    [
+        ("dog", ["dup-a1", "dup-a2"]),
+        ("DOG", ["dup-a1", "dup-a2"]),
+        ("dogs", ["solo-b"]),
+        ("man", ["dup-a1"]),
+        ("woman", ["dup-a1", "solo-b"]),
+    ],
+)
+def test_overview_terms_link_to_exact_gallery_matches(
+    overview_client: TestClient, term: str, expected_ids: list[str]
+) -> None:
+    response = overview_client.get("/api/samples", params={"term": term})
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == expected_ids
+
+
 def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path,
@@ -287,11 +517,13 @@ def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:
 
     with TestClient(create_app(settings)) as client:
         response = client.get("/api/samples")
+        overview_response = client.get("/api/overview")
 
     assert response.status_code == 503
     assert response.json() == {
         "detail": "Dataset is not prepared. Run the ingestion command."
     }
+    assert overview_response.status_code == 503
 
 
 def test_returns_service_unavailable_without_ready_marker(tmp_path: Path) -> None:
