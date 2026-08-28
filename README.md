@@ -6,7 +6,8 @@ After preparation, the running application does not contact Hugging Face or any 
 
 ## Features
 
-- **Browse**: a paginated thumbnail gallery with a split filter and a detail
+- **Browse**: exact caption search across all five captions with matching text
+  highlighted, a paginated thumbnail gallery with split filtering, and a detail
   drawer showing every caption and the stored image metadata.
 - **Overview**: sample counts by split, the caption-length distribution, common
   caption terms, image width/height distributions, and the aspect-ratio

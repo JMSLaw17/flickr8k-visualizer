@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { listSamples, type SamplePage } from '../api'
+import { FILTER_KEYS, listSamples, type SamplePage } from '../api'
 import DetailPanel from '../components/DetailPanel'
 import GallerySkeleton from '../components/GallerySkeleton'
 import SampleCard from '../components/SampleCard'
-import { filterChips, parseOffset, parseSampleFilters, type FilterChip } from '../filters'
+import {
+  filterChips,
+  MAX_CAPTION_QUERY_LENGTH,
+  normalizeCaptionQuery,
+  parseOffset,
+  parseSampleFilters,
+  type FilterChip,
+} from '../filters'
 import { getErrorMessage, splitLabels, type SplitFilter } from '../formatters'
 
 const PAGE_SIZE = 24
@@ -22,8 +29,19 @@ function GalleryPage() {
 
   const filters = useMemo(() => parseSampleFilters(searchParams), [searchParams])
   const offset = parseOffset(searchParams)
+  const committedQuery = filters.q ?? ''
+  const [draftQuery, setDraftQuery] = useState(committedQuery)
+  const draftResetKey = JSON.stringify(
+    FILTER_KEYS.filter((key) => key !== 'q').map((key) => filters[key] ?? null),
+  )
   const chips = filterChips(filters)
   const hasFilters = chips.length > 0 || filters.split !== undefined
+  const hasOtherFilters =
+    filters.split !== undefined || chips.some((chip) => !chip.keys.includes('q'))
+
+  useEffect(() => {
+    setDraftQuery(committedQuery)
+  }, [committedQuery, draftResetKey])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -33,6 +51,15 @@ function GalleryPage() {
 
     listSamples({ limit: PAGE_SIZE, offset, ...filters }, controller.signal)
       .then((result) => {
+        if (result.total > 0 && result.items.length === 0 && result.offset > 0) {
+          setSearchParams((previous) => {
+            const next = new URLSearchParams(previous)
+            next.delete('offset')
+            return next
+          }, { replace: true })
+          return
+        }
+
         setPage(result)
         setStatus('ready')
       })
@@ -43,7 +70,7 @@ function GalleryPage() {
       })
 
     return () => controller.abort()
-  }, [filters, offset, requestVersion])
+  }, [filters, offset, requestVersion, setSearchParams])
 
   const updateParams = (mutate: (params: URLSearchParams) => void) => {
     setSearchParams((previous) => {
@@ -68,6 +95,28 @@ function GalleryPage() {
     })
   }
 
+  const applySearch = (query: string) => {
+    const currentQuery = searchParams.get('q')
+    const queryIsCurrent = query ? currentQuery === query : currentQuery === null
+
+    if (queryIsCurrent && !searchParams.has('offset')) {
+      setRequestVersion((value) => value + 1)
+      return
+    }
+
+    updateParams((params) => {
+      params.delete('offset')
+      if (query) params.set('q', query)
+      else params.delete('q')
+    })
+  }
+
+  const submitSearch = () => {
+    const query = normalizeCaptionQuery(draftQuery)
+    setDraftQuery(query)
+    applySearch(query)
+  }
+
   const removeChip = (chip: FilterChip) => {
     updateParams((params) => {
       params.delete('offset')
@@ -86,6 +135,23 @@ function GalleryPage() {
     return { totalPages, currentPage, firstItem, lastItem }
   }, [page])
 
+  const resultSummary =
+    page && pageInfo && page.total > 0
+      ? committedQuery
+        ? `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()} matching samples for “${committedQuery}”`
+        : `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()}`
+      : ''
+  const resultAnnouncement =
+    status === 'loading'
+      ? committedQuery
+        ? `Searching captions for “${committedQuery}”`
+        : 'Loading samples'
+      : status === 'ready' && page?.total === 0
+        ? committedQuery
+          ? `No samples match the caption search for “${committedQuery}” and the current filters.`
+          : 'No samples match the current filters.'
+        : resultSummary
+
   return (
     <section className="gallery-section" aria-labelledby="gallery-title">
       <div className="toolbar">
@@ -94,27 +160,56 @@ function GalleryPage() {
           <h2 id="gallery-title" tabIndex={-1}>
             Dataset samples
           </h2>
-          {page && pageInfo && (
-            <p className="results-summary" aria-live="polite">
-              Showing {pageInfo.firstItem.toLocaleString()}–
-              {pageInfo.lastItem.toLocaleString()} of {page.total.toLocaleString()}
+          <p className="visually-hidden" aria-live="polite" aria-atomic="true">
+            {resultAnnouncement}
+          </p>
+          {resultSummary && (
+            <p className="results-summary" aria-hidden="true">
+              {resultSummary}
             </p>
           )}
         </div>
 
-        <label className="filter-control">
-          <span>Dataset split</span>
-          <select
-            value={filters.split ?? 'all'}
-            onChange={(event) => setSplit(event.target.value as SplitFilter)}
+        <div className="gallery-controls">
+          <form
+            className="search-control"
+            role="search"
+            aria-label="Caption search"
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitSearch()
+            }}
           >
-            {Object.entries(splitLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label htmlFor="caption-search">Search captions</label>
+            <div className="search-control__row">
+              <input
+                id="caption-search"
+                type="search"
+                value={draftQuery}
+                onChange={(event) => setDraftQuery(event.target.value)}
+                placeholder="Enter an exact phrase"
+                maxLength={MAX_CAPTION_QUERY_LENGTH}
+              />
+              <button className="button button--primary" type="submit">
+                Search
+              </button>
+            </div>
+          </form>
+
+          <label className="filter-control">
+            <span>Dataset split</span>
+            <select
+              value={filters.split ?? 'all'}
+              onChange={(event) => setSplit(event.target.value as SplitFilter)}
+            >
+              {Object.entries(splitLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {chips.length > 0 && (
@@ -139,7 +234,7 @@ function GalleryPage() {
       {status === 'error' && (
         <div className="state-card" role="alert">
           <span className="state-card__mark">!</span>
-          <h3>Couldn’t load the dataset</h3>
+          <h3>{committedQuery ? 'Couldn’t search captions' : 'Couldn’t load the dataset'}</h3>
           <p>{error}</p>
           <p className="state-card__hint">Make sure the local API is running, then try again.</p>
           <button
@@ -155,9 +250,32 @@ function GalleryPage() {
       {status === 'ready' && page && page.items.length === 0 && (
         <div className="state-card">
           <span className="state-card__mark">0</span>
-          <h3>No samples found</h3>
-          <p>There are no locally ingested samples matching these filters.</p>
-          {hasFilters && (
+          <h3>{committedQuery ? 'No matching captions' : 'No samples found'}</h3>
+          <p>
+            {committedQuery
+              ? `No samples in the current filters have captions matching “${committedQuery}”.`
+              : 'There are no locally ingested samples matching these filters.'}
+          </p>
+          {committedQuery ? (
+            <div className="state-card__actions">
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => applySearch('')}
+              >
+                Clear search
+              </button>
+              {hasOtherFilters && (
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  onClick={() => setSearchParams({})}
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          ) : hasFilters ? (
             <button
               className="button button--secondary"
               type="button"
@@ -165,7 +283,7 @@ function GalleryPage() {
             >
               Clear filters
             </button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -176,6 +294,7 @@ function GalleryPage() {
               <SampleCard
                 key={sample.id}
                 sample={sample}
+                query={committedQuery}
                 onOpen={() => setSelectedId(sample.id)}
               />
             ))}

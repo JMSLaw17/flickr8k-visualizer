@@ -107,9 +107,19 @@ def client(tmp_path: Path) -> TestClient:
             [
                 ("sample-a", 1, "The second caption."),
                 ("sample-a", 0, "The first caption."),
+                ("sample-a", 2, "Common 100% phrase."),
+                ("sample-a", 3, "Common 100% phrase."),
+                ("sample-a", 4, "Man finds needle."),
                 ("sample-b", 1, "A second description."),
                 ("sample-b", 0, "Another image."),
+                ("sample-b", 2, "Common under_score phrase."),
+                ("sample-b", 3, "Literal 100x match."),
+                ("sample-b", 4, "A woman walks."),
                 ("sample-c", 0, "A validation image."),
+                ("sample-c", 1, "Common phrase there."),
+                ("sample-c", 2, "Regex '.*_[exact]' remains."),
+                ("sample-c", 3, "Quoted SQL-like text."),
+                ("sample-c", 4, "Café stays accented."),
             ],
         )
 
@@ -155,6 +165,7 @@ def test_filters_samples_and_orders_captions(client: TestClient) -> None:
         "height": 480,
         "thumbnail_url": "/media/thumbnails/first%20image.jpg",
         "caption": "The first caption.",
+        "matched_captions": [],
     }
 
 
@@ -192,7 +203,13 @@ def test_gets_one_sample(client: TestClient) -> None:
         "file_size_bytes": 12,
         "image_url": "/media/images/second.jpg",
         "thumbnail_url": "/media/thumbnails/second.jpg",
-        "captions": ["Another image.", "A second description."],
+        "captions": [
+            "Another image.",
+            "A second description.",
+            "Common under_score phrase.",
+            "Literal 100x match.",
+            "A woman walks.",
+        ],
     }
 
 
@@ -263,6 +280,7 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         "split": "string",
         "width": "integer",
         "height": "integer",
+        "matched_captions": "array",
     }
     expected_detail_types = {
         "split": "string",
@@ -279,6 +297,15 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         assert detail_schema["properties"][field]["type"] == expected_type
     assert expected_summary_types.keys() <= set(summary_schema["required"])
     assert expected_detail_types.keys() <= set(detail_schema["required"])
+
+    q_parameter = next(
+        parameter
+        for parameter in list_operation["parameters"]
+        if parameter["name"] == "q"
+    )
+    q_schema = q_parameter["schema"]["anyOf"][0]
+    assert q_schema["minLength"] == 1
+    assert q_schema["maxLength"] == 200
 
 
 @pytest.mark.parametrize(
@@ -335,6 +362,150 @@ def test_filters_samples_by_caption_and_geometry(
 )
 def test_rejects_invalid_filters(client: TestClient, params: dict[str, object]) -> None:
     assert client.get("/api/samples", params=params).status_code == 422
+
+
+def test_caption_search_groups_every_matching_caption_and_trims_query(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/samples", params={"q": "  COMMON 100% PHRASE.  "})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == ["sample-a"]
+    assert body["items"][0]["matched_captions"] == [
+        "Common 100% phrase.",
+        "Common 100% phrase.",
+    ]
+
+
+def test_caption_search_includes_a_match_in_the_fifth_caption(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/samples", params={"q": "needle"})
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["matched_captions"] == ["Man finds needle."]
+
+
+def test_caption_search_orders_matches_by_caption_position(client: TestClient) -> None:
+    response = client.get("/api/samples", params={"q": "caption"})
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items[0]["id"] == "sample-a"
+    assert items[0]["matched_captions"] == [
+        "The first caption.",
+        "The second caption.",
+    ]
+
+
+def test_caption_search_paginates_unique_samples(client: TestClient) -> None:
+    response = client.get(
+        "/api/samples", params={"q": "common", "limit": 1, "offset": 1}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert body["limit"] == 1
+    assert body["offset"] == 1
+    assert [item["id"] for item in body["items"]] == ["sample-b"]
+    assert body["items"][0]["matched_captions"] == ["Common under_score phrase."]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_ids"),
+    [
+        ({"q": "common", "split": "validation"}, ["sample-c"]),
+        ({"q": "common", "min_width": 700}, ["sample-b"]),
+        ({"q": "common", "term": "woman"}, ["sample-b"]),
+        ({"q": "common", "max_words": 3}, ["sample-b"]),
+    ],
+    ids=["split", "geometry", "term", "caption-length"],
+)
+def test_caption_search_combines_with_gallery_filters(
+    client: TestClient, params: dict[str, object], expected_ids: list[str]
+) -> None:
+    response = client.get("/api/samples", params=params)
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == expected_ids
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_ids"),
+    [
+        ("MAN", ["sample-a"]),
+        ("woman", ["sample-b"]),
+        ("need", []),
+        ("100", ["sample-a"]),
+        ("FIRST CAPTION", ["sample-a"]),
+        ("first  caption", []),
+        ("%", ["sample-a"]),
+        ("_", ["sample-b", "sample-c"]),
+        (".*_[exact]", ["sample-c"]),
+        ("' OR 1=1 --", []),
+        ("İ", []),
+        ("ı", []),
+        ("ſ", []),
+        ("K", []),
+        ("café", ["sample-c"]),
+        ("CAFÉ", []),
+        ("\ufeffMAN\ufeff", ["sample-a"]),
+        ("\u0085MAN\u0085", []),
+    ],
+    ids=[
+        "case-and-leading-boundary",
+        "whole-word",
+        "trailing-boundary",
+        "numeric-boundary",
+        "phrase-and-case",
+        "internal-space-is-exact",
+        "sql-percent-is-literal",
+        "sql-underscore-is-literal",
+        "regex-metacharacters-are-literal",
+        "sql-looking-input-is-literal",
+        "unicode-capital-i-dot-is-literal",
+        "unicode-dotless-i-is-literal",
+        "unicode-long-s-is-literal",
+        "unicode-kelvin-sign-is-literal",
+        "non-ascii-case-is-literal-match",
+        "non-ascii-case-is-not-folded",
+        "ecmascript-byte-order-mark-is-trimmed",
+        "next-line-control-is-not-trimmed",
+    ],
+)
+def test_caption_search_literal_matching(
+    client: TestClient, query: str, expected_ids: list[str]
+) -> None:
+    response = client.get("/api/samples", params={"q": query})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == len(expected_ids)
+    assert [item["id"] for item in body["items"]] == expected_ids
+
+
+def test_caption_search_returns_an_empty_page(client: TestClient) -> None:
+    response = client.get("/api/samples", params={"q": "not present"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 0,
+        "limit": 24,
+        "offset": 0,
+        "items": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["", "   ", "\ufeff", "a" * 201],
+    ids=["empty", "whitespace-only", "byte-order-mark-only", "too-long"],
+)
+def test_caption_search_rejects_invalid_queries(client: TestClient, query: str) -> None:
+    assert client.get("/api/samples", params={"q": query}).status_code == 422
 
 
 @pytest.fixture
@@ -517,12 +688,14 @@ def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:
 
     with TestClient(create_app(settings)) as client:
         response = client.get("/api/samples")
+        search_response = client.get("/api/samples", params={"q": "caption"})
         overview_response = client.get("/api/overview")
 
     assert response.status_code == 503
     assert response.json() == {
         "detail": "Dataset is not prepared. Run the ingestion command."
     }
+    assert search_response.status_code == 503
     assert overview_response.status_code == 503
 
 

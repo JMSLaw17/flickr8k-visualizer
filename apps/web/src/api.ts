@@ -8,6 +8,7 @@ export interface SampleSummary {
   height: number
   thumbnail_url: string
   caption: string | null
+  matched_captions: string[]
 }
 
 export interface SampleDetail {
@@ -34,6 +35,7 @@ export interface SamplePage {
 // Numeric ranges are half-open, matching the API: min <= value < max.
 export interface SampleFilters {
   split?: DatasetSplit
+  q?: string
   term?: string
   min_words?: number
   max_words?: number
@@ -47,6 +49,7 @@ export interface SampleFilters {
 
 export const FILTER_KEYS = [
   'split',
+  'q',
   'term',
   'min_words',
   'max_words',
@@ -116,8 +119,9 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
     let message = `Request failed (${response.status})`
 
     try {
-      const body = (await response.json()) as { detail?: string }
-      if (body.detail) message = body.detail
+      const body = (await response.json()) as { detail?: unknown }
+      const detail = errorDetail(body.detail)
+      if (detail) message = detail
     } catch {
       // Keep the status-based fallback.
     }
@@ -126,6 +130,17 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
 
   return response.json() as Promise<T>
+}
+
+function errorDetail(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail
+  if (!Array.isArray(detail)) return null
+
+  const messages = detail.flatMap((issue) => {
+    if (typeof issue !== 'object' || issue === null || !('msg' in issue)) return []
+    return typeof issue.msg === 'string' ? [issue.msg] : []
+  })
+  return messages.length > 0 ? messages.join('; ') : null
 }
 
 export function listSamples(

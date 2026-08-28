@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from .caption_text import caption_has_term, caption_token_count
+from .caption_text import caption_has_term, caption_matches_query, caption_token_count
 from .models import SampleFilters
 
 # Caption length in whitespace-separated tokens. The same expression drives the
@@ -57,6 +57,9 @@ def connect_database(database_path: Path) -> sqlite3.Connection:
     connection.create_function(
         "caption_token_count", 1, caption_token_count, deterministic=True
     )
+    connection.create_function(
+        "caption_matches_query", 2, caption_matches_query, deterministic=True
+    )
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
@@ -97,6 +100,13 @@ def _filter_clauses(filters: SampleFilters) -> tuple[str, list[object]]:
             " AND caption_has_term(captions.text, ?))"
         )
         parameters.append(filters.term)
+
+    if filters.q is not None:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM captions WHERE captions.sample_id = samples.id"
+            " AND caption_matches_query(captions.text, ?))"
+        )
+        parameters.append(filters.q)
 
     word_bounds = [
         (f"{CAPTION_TOKEN_COUNT_SQL} >= ?", filters.min_words),
@@ -159,10 +169,20 @@ def list_samples(
                 """,
                 (*parameters, limit, offset),
             ).fetchall()
+            records = [dict(row) for row in rows]
+            matched_captions: defaultdict[str, list[str]] = defaultdict(list)
+            if filters.q is not None:
+                matched_captions = _load_captions(
+                    connection,
+                    [record["id"] for record in records],
+                    query=filters.q,
+                )
     except sqlite3.Error as error:
         raise DatabaseUnavailableError("Dataset database is not ready") from error
 
-    return total, [dict(row) for row in rows]
+    for record in records:
+        record["matched_captions"] = matched_captions[record["id"]]
+    return total, records
 
 
 def get_sample(database_path: Path, sample_id: str) -> dict[str, Any] | None:
@@ -250,21 +270,31 @@ def _value_counts(connection: sqlite3.Connection, query: str) -> Counter[Any]:
 
 
 def _load_captions(
-    connection: sqlite3.Connection, sample_ids: list[str]
+    connection: sqlite3.Connection,
+    sample_ids: list[str],
+    *,
+    query: str | None = None,
 ) -> defaultdict[str, list[str]]:
     captions: defaultdict[str, list[str]] = defaultdict(list)
     if not sample_ids:
         return captions
 
     placeholders = ", ".join("?" for _ in sample_ids)
+    query_clause = ""
+    parameters: list[object] = [*sample_ids]
+    if query is not None:
+        query_clause = " AND caption_matches_query(text, ?)"
+        parameters.append(query)
+
     rows = connection.execute(
         f"""
         SELECT sample_id, text
         FROM captions
         WHERE sample_id IN ({placeholders})
+          {query_clause}
         ORDER BY sample_id, position
         """,
-        sample_ids,
+        parameters,
     ).fetchall()
     for row in rows:
         captions[row["sample_id"]].append(row["text"])

@@ -16,6 +16,7 @@ const summary: SampleSummary = {
   height: 375,
   thumbnail_url: '/media/thumbnails/123456789.jpg',
   caption: 'A dog runs through a field.',
+  matched_captions: [],
 }
 
 const detail: SampleDetail = {
@@ -64,13 +65,14 @@ describe('dataset API', () => {
       offset: 0,
       max_ratio: 1.5,
       min_ratio: 1.25,
+      q: 'green field & dog',
       term: 'dog',
       min_words: 9,
       max_words: 10,
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/samples?limit=24&offset=0&term=dog&min_words=9&max_words=10&min_ratio=1.25&max_ratio=1.5',
+      '/api/samples?limit=24&offset=0&q=green+field+%26+dog&term=dog&min_words=9&max_words=10&min_ratio=1.25&max_ratio=1.5',
       { signal: undefined },
     )
   })
@@ -118,5 +120,29 @@ describe('dataset API', () => {
     )
 
     await expect(getSample('missing')).rejects.toThrow('Sample not found')
+  })
+
+  it('uses FastAPI validation messages when error detail is an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: [
+              {
+                type: 'string_too_long',
+                loc: ['query', 'q'],
+                msg: 'String should have at most 200 characters',
+              },
+            ],
+          }),
+          { status: 422, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    await expect(
+      listSamples({ limit: 24, offset: 0, q: 'a'.repeat(201) }),
+    ).rejects.toThrow('String should have at most 200 characters')
   })
 })

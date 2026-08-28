@@ -152,6 +152,7 @@ def _to_summary(record: dict[str, Any]) -> SampleSummary:
         height=record["height"],
         thumbnail_url=_media_url(record["thumbnail_path"], "thumbnails"),
         caption=record["caption"],
+        matched_captions=record["matched_captions"],
     )
 
 

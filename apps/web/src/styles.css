@@ -27,6 +27,7 @@ body {
 }
 
 button,
+input,
 select {
   font: inherit;
 }
@@ -36,9 +37,19 @@ button {
 }
 
 button:focus-visible,
+input:focus-visible,
 select:focus-visible {
-  outline: 3px solid rgb(7 95 85 / 24%);
+  outline: 3px solid var(--accent-strong);
   outline-offset: 3px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .app-shell {
@@ -132,10 +143,45 @@ h1 {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 28px;
+}
+
+.gallery-controls {
+  display: flex;
+  flex: 1 1 540px;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.search-control {
+  display: grid;
+  flex: 1 1 320px;
+  gap: 7px;
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.search-control__row {
+  display: flex;
+  gap: 8px;
+}
+
+.search-control input {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  padding: 0 13px;
+  border: 1px solid #c9c3b8;
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .toolbar h2 {
@@ -148,6 +194,7 @@ h1 {
   margin-bottom: 0;
   color: var(--muted);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .filter-control {
@@ -181,6 +228,7 @@ h1 {
 }
 
 .sample-card {
+  position: relative;
   min-width: 0;
   overflow: hidden;
   padding: 0;
@@ -193,6 +241,23 @@ h1 {
     transform 160ms ease,
     border-color 160ms ease,
     box-shadow 160ms ease;
+}
+
+.sample-card__open {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sample-card__open:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: -3px;
 }
 
 .sample-card:hover {
@@ -280,6 +345,42 @@ h1 {
   -webkit-line-clamp: 2;
 }
 
+.sample-card__matches {
+  margin-bottom: 14px;
+}
+
+.sample-card__matches-label {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sample-card__matches ul {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sample-card__matches li {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.94rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.sample-card__matches mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: #f8d878;
+  color: inherit;
+}
+
 .sample-card__meta {
   color: var(--muted);
   font-size: 0.72rem;
@@ -363,10 +464,19 @@ h1 {
   margin-bottom: 8px;
   color: var(--muted);
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .state-card__hint {
   font-size: 0.83rem;
+}
+
+.state-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .button {
@@ -388,6 +498,11 @@ h1 {
   margin-top: 18px;
   background: var(--accent);
   color: #fff;
+}
+
+.search-control .button {
+  min-height: 44px;
+  margin-top: 0;
 }
 
 .button--primary:hover {
@@ -740,6 +855,7 @@ footer {
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  max-width: 100%;
   min-height: 34px;
   padding: 0 6px 0 13px;
   border: 1px solid #cdd8d2;
@@ -750,8 +866,14 @@ footer {
   font-weight: 650;
 }
 
+.filter-chip > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .filter-chip button {
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   width: 22px;
   height: 22px;
@@ -1178,6 +1300,16 @@ a.histogram__hit:hover .histogram__bar {
 
   .toolbar {
     display: grid;
+  }
+
+  .gallery-controls {
+    display: grid;
+    width: 100%;
+  }
+
+  .search-control {
+    width: 100%;
+    max-width: none;
   }
 
   .histogram__plot {

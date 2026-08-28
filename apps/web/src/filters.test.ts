@@ -4,6 +4,8 @@ import {
   binFilters,
   filterChips,
   galleryPath,
+  MAX_CAPTION_QUERY_LENGTH,
+  normalizeCaptionQuery,
   parseOffset,
   parseSampleFilters,
 } from './filters'
@@ -11,19 +13,33 @@ import {
 describe('parseSampleFilters', () => {
   it('reads supported filters and drops invalid values', () => {
     const params = new URLSearchParams(
-      'split=train&term=dog&min_words=9&max_words=abc&min_ratio=-2&max_ratio=1.5',
+      'split=train&q=%20green+field%20&term=dog&min_words=9&max_words=abc&min_ratio=-2&max_ratio=1.5',
     )
 
     expect(parseSampleFilters(params)).toEqual({
       split: 'train',
+      q: 'green field',
       term: 'dog',
       min_words: 9,
       max_ratio: 1.5,
     })
   })
 
-  it('ignores unknown splits and empty terms', () => {
-    expect(parseSampleFilters(new URLSearchParams('split=dev&term='))).toEqual({})
+  it('ignores unknown splits and blank text filters', () => {
+    expect(parseSampleFilters(new URLSearchParams('split=dev&q=%20%20&term='))).toEqual({})
+  })
+
+  it('caps edited URL queries at the API limit', () => {
+    const query = '🐕'.repeat(MAX_CAPTION_QUERY_LENGTH + 1)
+
+    expect(parseSampleFilters(new URLSearchParams({ q: query }))).toEqual({
+      q: '🐕'.repeat(MAX_CAPTION_QUERY_LENGTH),
+    })
+  })
+
+  it('uses JavaScript trim semantics for caption queries', () => {
+    expect(normalizeCaptionQuery('\ufeffdog\ufeff')).toBe('dog')
+    expect(normalizeCaptionQuery('\u0085dog\u0085')).toBe('\u0085dog\u0085')
   })
 })
 
@@ -40,8 +56,8 @@ describe('galleryPath', () => {
   it('encodes filters in a stable order', () => {
     expect(galleryPath({})).toBe('/')
     expect(galleryPath({ split: 'train' })).toBe('/?split=train')
-    expect(galleryPath({ min_ratio: 1.25, term: 'dog', max_ratio: 1.5 })).toBe(
-      '/?term=dog&min_ratio=1.25&max_ratio=1.5',
+    expect(galleryPath({ min_ratio: 1.25, q: 'green field', term: 'dog', max_ratio: 1.5 })).toBe(
+      '/?q=green+field&term=dog&min_ratio=1.25&max_ratio=1.5',
     )
   })
 })
@@ -62,6 +78,7 @@ describe('filterChips', () => {
   it('describes every non-split filter with the params it clears', () => {
     const chips = filterChips({
       split: 'train',
+      q: 'green field',
       term: 'dog',
       min_words: 9,
       max_words: 10,
@@ -72,7 +89,8 @@ describe('filterChips', () => {
     })
 
     expect(chips).toEqual([
-      { label: 'Captions contain “dog”', keys: ['term'] },
+      { label: 'Caption search: “green field”', keys: ['q'] },
+      { label: 'Exact term: “dog”', keys: ['term'] },
       { label: 'Caption length: 9 tokens', keys: ['min_words', 'max_words'] },
       { label: 'Width: 450–499 px', keys: ['min_width', 'max_width'] },
       { label: 'Aspect ratio: 1.25–1.5', keys: ['min_ratio', 'max_ratio'] },

@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .caption_text import trim_caption_query
 
 DatasetSplit = Literal["train", "validation", "test"]
 
@@ -15,6 +17,7 @@ class SampleSummary(BaseModel):
     height: int
     thumbnail_url: str
     caption: str | None
+    matched_captions: list[str]
 
 
 class SampleDetail(BaseModel):
@@ -43,6 +46,7 @@ class SampleFilters(BaseModel):
 
     split: DatasetSplit | None = None
     term: str | None = Field(default=None, min_length=1, max_length=80)
+    q: str | None = Field(default=None, min_length=1, max_length=200)
     min_words: int | None = Field(default=None, ge=1)
     max_words: int | None = Field(default=None, ge=1)
     min_width: int | None = Field(default=None, ge=1)
@@ -51,6 +55,11 @@ class SampleFilters(BaseModel):
     max_height: int | None = Field(default=None, ge=1)
     min_ratio: float | None = Field(default=None, gt=0)
     max_ratio: float | None = Field(default=None, gt=0)
+
+    @field_validator("q", mode="before")
+    @classmethod
+    def trim_query(cls, value: object) -> object:
+        return trim_caption_query(value) if isinstance(value, str) else value
 
 
 class SampleQuery(SampleFilters):

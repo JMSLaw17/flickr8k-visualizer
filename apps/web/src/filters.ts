@@ -6,8 +6,9 @@ import {
 } from './api'
 
 export const SPLITS: readonly DatasetSplit[] = ['train', 'validation', 'test']
+export const MAX_CAPTION_QUERY_LENGTH = 200
 
-type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'term'>
+type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'q' | 'term'>
 
 export function parseSampleFilters(params: URLSearchParams): SampleFilters {
   const filters: SampleFilters = {}
@@ -20,13 +21,20 @@ export function parseSampleFilters(params: URLSearchParams): SampleFilters {
   const term = params.get('term')
   if (term) filters.term = term
 
+  const query = normalizeCaptionQuery(params.get('q') ?? '')
+  if (query) filters.q = query
+
   for (const key of FILTER_KEYS) {
-    if (key === 'split' || key === 'term') continue
+    if (key === 'split' || key === 'q' || key === 'term') continue
     const value = Number(params.get(key))
     if (Number.isFinite(value) && value > 0) filters[key] = value
   }
 
   return filters
+}
+
+export function normalizeCaptionQuery(query: string): string {
+  return [...query.trim()].slice(0, MAX_CAPTION_QUERY_LENGTH).join('')
 }
 
 export function parseOffset(params: URLSearchParams): number {
@@ -66,8 +74,12 @@ export interface FilterChip {
 export function filterChips(filters: SampleFilters): FilterChip[] {
   const chips: FilterChip[] = []
 
+  if (filters.q) {
+    chips.push({ label: `Caption search: “${filters.q}”`, keys: ['q'] })
+  }
+
   if (filters.term) {
-    chips.push({ label: `Captions contain “${filters.term}”`, keys: ['term'] })
+    chips.push({ label: `Exact term: “${filters.term}”`, keys: ['term'] })
   }
 
   const ranges: [string, NumericFilterKey, NumericFilterKey, string, boolean][] = [
