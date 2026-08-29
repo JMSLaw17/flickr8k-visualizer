@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { DatasetOverview, SampleDetail } from '../api'
+import RoutedDetailPanel from '../components/RoutedDetailPanel'
 import OverviewPage from './OverviewPage'
 
 const overview: DatasetOverview = {
@@ -80,6 +81,8 @@ const memberDetail: SampleDetail = {
   image_url: '/media/images/dup-1.jpg',
   thumbnail_url: '/media/thumbnails/dup-1.webp',
   captions: ['Two dogs on a beach.'],
+  previous_id: null,
+  next_id: null,
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -89,10 +92,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
-function renderOverview() {
+function renderOverview(initialEntry = '/overview') {
   return render(
-    <MemoryRouter initialEntries={['/overview']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <OverviewPage />
+      <RoutedDetailPanel />
     </MemoryRouter>,
   )
 }
@@ -169,8 +173,8 @@ it('summarizes duplicates and opens members in the sample drawer', async () => {
   expect(groups[0]).toHaveTextContent('2 identical images')
   expect(groups[1]).not.toHaveClass('duplicate-group--cross')
 
-  const memberButton = screen.getByRole('button', { name: /dup-1\.jpg/ })
-  fireEvent.click(memberButton)
+  const memberLink = screen.getByRole('link', { name: /dup-1\.jpg/ })
+  fireEvent.click(memberLink)
 
   expect(await screen.findByRole('dialog')).toBeInTheDocument()
   expect(
@@ -182,7 +186,30 @@ it('summarizes duplicates and opens members in the sample drawer', async () => {
 
   await user.click(screen.getByRole('button', { name: 'Close details' }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(memberButton).toHaveFocus()
+  expect(memberLink).toHaveFocus()
+})
+
+it('returns a direct trailing-slash detail URL to the overview heading', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input) === '/api/overview'
+        ? jsonResponse(overview)
+        : jsonResponse(memberDetail),
+    ),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderOverview('/overview/?sample=dup-1')
+
+  expect(
+    await screen.findByRole('heading', { name: 'dup-1.jpg' }),
+  ).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Close details' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Dataset overview' })).toHaveFocus()
+  })
 })
 
 it('retries a failed overview request', async () => {

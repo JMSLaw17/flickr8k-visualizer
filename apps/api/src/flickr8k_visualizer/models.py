@@ -32,6 +32,8 @@ class SampleDetail(BaseModel):
     image_url: str
     thumbnail_url: str
     captions: list[str]
+    previous_id: str | None
+    next_id: str | None
 
 
 class SampleList(BaseModel):

@@ -3,8 +3,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { getOverview, type DatasetOverview, type DuplicateSummary } from '../api'
 import BarList from '../components/BarList'
 import DatasetImage from '../components/DatasetImage'
-import DetailPanel from '../components/DetailPanel'
 import Histogram from '../components/Histogram'
+import SampleLink from '../components/SampleLink'
 import { binFilters, galleryPath, SPLITS } from '../filters'
 import { formatSplit, getErrorMessage } from '../formatters'
 
@@ -15,7 +15,6 @@ function OverviewPage() {
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
   const [requestVersion, setRequestVersion] = useState(0)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -141,11 +140,9 @@ function OverviewPage() {
             </ChartCard>
           </div>
 
-          <DataQuality duplicates={overview.duplicates} onOpenSample={setSelectedId} />
+          <DataQuality duplicates={overview.duplicates} />
         </>
       )}
-
-      {selectedId && <DetailPanel sampleId={selectedId} onClose={() => setSelectedId(null)} />}
     </section>
   )
 }
@@ -170,13 +167,7 @@ function ChartCard({
   )
 }
 
-function DataQuality({
-  duplicates,
-  onOpenSample,
-}: {
-  duplicates: DuplicateSummary
-  onOpenSample: (id: string) => void
-}) {
+function DataQuality({ duplicates }: { duplicates: DuplicateSummary }) {
   const hasCrossSplit = duplicates.cross_split_group_count > 0
 
   return (
@@ -233,13 +224,10 @@ function DataQuality({
               <ul className="duplicate-group__samples">
                 {group.samples.map((member) => (
                   <li key={member.id}>
-                    <button
+                    <SampleLink
                       className="duplicate-sample"
-                      type="button"
-                      onClick={(event) => {
-                        event.currentTarget.focus({ preventScroll: true })
-                        onOpenSample(member.id)
-                      }}
+                      sampleId={member.id}
+                      aria-label={`View details for ${member.source_id}`}
                     >
                       <DatasetImage
                         className="duplicate-sample__image"
@@ -252,7 +240,7 @@ function DataQuality({
                         </span>
                         <span className="duplicate-sample__id">{member.source_id}</span>
                       </span>
-                    </button>
+                    </SampleLink>
                   </li>
                 ))}
               </ul>

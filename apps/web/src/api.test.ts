@@ -26,6 +26,8 @@ const detail: SampleDetail = {
   file_size_bytes: 42_000,
   image_url: '/media/images/123456789.jpg',
   captions: ['A dog runs through a field.'],
+  previous_id: 'sample-0',
+  next_id: 'sample-2',
 }
 
 afterEach(() => {
@@ -91,7 +93,7 @@ describe('dataset API', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/overview', { signal: undefined })
   })
 
-  it('encodes stable sample IDs in detail requests', async () => {
+  it('encodes stable sample IDs and serializes detail filter context', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(detail), {
         status: 200,
@@ -100,12 +102,26 @@ describe('dataset API', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await getSample('folder/image 1.jpg')
+    const result = await getSample('folder/image 1.jpg', {
+      max_ratio: 1.5,
+      min_ratio: 1.25,
+      split: 'test',
+      q: 'green field & dog',
+      term: 'dog',
+      min_words: 9,
+      max_words: 10,
+      min_width: 400,
+      max_width: 900,
+      min_height: 300,
+      max_height: 700,
+    })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/samples/folder%2Fimage%201.jpg',
+      '/api/samples/folder%2Fimage%201.jpg?split=test&q=green+field+%26+dog&term=dog&min_words=9&max_words=10&min_width=400&max_width=900&min_height=300&max_height=700&min_ratio=1.25&max_ratio=1.5',
       { signal: undefined },
     )
+    expect(result.previous_id).toBe('sample-0')
+    expect(result.next_id).toBe('sample-2')
   })
 
   it('uses the backend error detail when a request fails', async () => {

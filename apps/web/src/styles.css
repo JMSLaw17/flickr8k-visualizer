@@ -247,12 +247,14 @@ h1 {
   position: absolute;
   z-index: 1;
   inset: 0;
+  display: block;
   width: 100%;
   padding: 0;
   border: 0;
   border-radius: inherit;
   background: transparent;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .sample-card__open:focus-visible {
@@ -660,6 +662,17 @@ footer {
   letter-spacing: -0.04em;
   line-height: 1.05;
   text-overflow: ellipsis;
+}
+
+.detail-navigation {
+  display: flex;
+  gap: 10px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-navigation .button {
+  flex: 1;
 }
 
 .caption-section,
@@ -1210,18 +1223,26 @@ a.histogram__hit:hover .histogram__bar {
 }
 
 .duplicate-sample {
+  display: block;
   overflow: hidden;
   width: 190px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--paper);
+  color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   transition:
     transform 160ms ease,
     border-color 160ms ease,
     box-shadow 160ms ease;
+}
+
+.duplicate-sample:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 3px;
 }
 
 .duplicate-sample:hover {

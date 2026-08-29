@@ -210,7 +210,96 @@ def test_gets_one_sample(client: TestClient) -> None:
             "Literal 100x match.",
             "A woman walks.",
         ],
+        "previous_id": "sample-a",
+        "next_id": "sample-c",
     }
+
+
+@pytest.mark.parametrize(
+    ("sample_id", "previous_id", "next_id"),
+    [
+        ("sample-a", None, "sample-b"),
+        ("sample-c", "sample-b", None),
+    ],
+    ids=["first", "last"],
+)
+def test_detail_navigation_has_null_ends_without_wrapping(
+    client: TestClient,
+    sample_id: str,
+    previous_id: str | None,
+    next_id: str | None,
+) -> None:
+    response = client.get(f"/api/samples/{sample_id}")
+
+    assert response.status_code == 200
+    assert response.json()["previous_id"] == previous_id
+    assert response.json()["next_id"] == next_id
+
+
+def test_detail_navigation_uses_the_complete_filtered_id_order(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/samples/sample-b", params={"term": "image"})
+
+    assert response.status_code == 200
+    assert response.json()["previous_id"] is None
+    assert response.json()["next_id"] == "sample-c"
+
+
+@pytest.mark.parametrize(
+    ("sample_id", "params", "previous_id", "next_id"),
+    [
+        (
+            "sample-b",
+            {"min_words": 3, "max_words": 4},
+            "sample-a",
+            "sample-c",
+        ),
+        (
+            "sample-a",
+            {
+                "min_width": 300,
+                "max_width": 700,
+                "min_ratio": 1.3,
+                "max_ratio": 1.4,
+            },
+            None,
+            "sample-c",
+        ),
+        (
+            "sample-b",
+            {"min_height": 400, "max_height": 700},
+            "sample-a",
+            None,
+        ),
+    ],
+    ids=["caption-words", "width-and-ratio", "height"],
+)
+def test_detail_navigation_applies_numeric_filter_context(
+    client: TestClient,
+    sample_id: str,
+    params: dict[str, int | float],
+    previous_id: str | None,
+    next_id: str | None,
+) -> None:
+    response = client.get(f"/api/samples/{sample_id}", params=params)
+
+    assert response.status_code == 200
+    assert response.json()["previous_id"] == previous_id
+    assert response.json()["next_id"] == next_id
+
+
+def test_detail_outside_filters_still_loads_without_navigation(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/samples/sample-b", params={"split": "train"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "sample-b"
+    assert body["captions"][0] == "Another image."
+    assert body["previous_id"] is None
+    assert body["next_id"] is None
 
 
 def test_returns_not_found_for_missing_sample(client: TestClient) -> None:
@@ -297,6 +386,32 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         assert detail_schema["properties"][field]["type"] == expected_type
     assert expected_summary_types.keys() <= set(summary_schema["required"])
     assert expected_detail_types.keys() <= set(detail_schema["required"])
+
+    navigation_fields = {"previous_id", "next_id"}
+    assert navigation_fields <= set(detail_schema["required"])
+    for field in navigation_fields:
+        variants = detail_schema["properties"][field]["anyOf"]
+        assert {variant["type"] for variant in variants} == {"string", "null"}
+
+    detail_operation = schema["paths"]["/api/samples/{sample_id}"]["get"]
+    detail_query_parameters = {
+        parameter["name"]
+        for parameter in detail_operation["parameters"]
+        if parameter["in"] == "query"
+    }
+    assert detail_query_parameters == {
+        "split",
+        "term",
+        "q",
+        "min_words",
+        "max_words",
+        "min_width",
+        "max_width",
+        "min_height",
+        "max_height",
+        "min_ratio",
+        "max_ratio",
+    }
 
     q_parameter = next(
         parameter
@@ -689,6 +804,7 @@ def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:
     with TestClient(create_app(settings)) as client:
         response = client.get("/api/samples")
         search_response = client.get("/api/samples", params={"q": "caption"})
+        detail_response = client.get("/api/samples/sample-a", params={"split": "train"})
         overview_response = client.get("/api/overview")
 
     assert response.status_code == 503
@@ -696,6 +812,7 @@ def test_returns_service_unavailable_without_database(tmp_path: Path) -> None:
         "detail": "Dataset is not prepared. Run the ingestion command."
     }
     assert search_response.status_code == 503
+    assert detail_response.status_code == 503
     assert overview_response.status_code == 503
 
 

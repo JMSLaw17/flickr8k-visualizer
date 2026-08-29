@@ -23,6 +23,8 @@ export interface SampleDetail {
   image_url: string
   thumbnail_url: string
   captions: string[]
+  previous_id: string | null
+  next_id: string | null
 }
 
 export interface SamplePage {
@@ -60,6 +62,18 @@ export const FILTER_KEYS = [
   'min_ratio',
   'max_ratio',
 ] as const satisfies readonly (keyof SampleFilters)[]
+
+export function filterSearchParams(
+  filters: SampleFilters,
+  initial?: URLSearchParams,
+): URLSearchParams {
+  const query = new URLSearchParams(initial)
+  for (const key of FILTER_KEYS) {
+    const value = filters[key]
+    if (value !== undefined) query.set(key, String(value))
+  }
+  return query
+}
 
 export interface ListSamplesParams extends SampleFilters {
   limit: number
@@ -147,21 +161,22 @@ export function listSamples(
   { limit, offset, ...filters }: ListSamplesParams,
   signal?: AbortSignal,
 ): Promise<SamplePage> {
-  const query = new URLSearchParams({
-    limit: String(limit),
-    offset: String(offset),
-  })
-
-  for (const key of FILTER_KEYS) {
-    const value = filters[key]
-    if (value !== undefined) query.set(key, String(value))
-  }
+  const query = filterSearchParams(
+    filters,
+    new URLSearchParams({ limit: String(limit), offset: String(offset) }),
+  )
 
   return request<SamplePage>(`/api/samples?${query}`, signal)
 }
 
-export function getSample(id: string, signal?: AbortSignal): Promise<SampleDetail> {
-  return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}`, signal)
+export function getSample(
+  id: string,
+  filters: SampleFilters = {},
+  signal?: AbortSignal,
+): Promise<SampleDetail> {
+  const query = filterSearchParams(filters)
+  const suffix = query.size > 0 ? `?${query}` : ''
+  return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}${suffix}`, signal)
 }
 
 export function getOverview(signal?: AbortSignal): Promise<DatasetOverview> {

@@ -2,14 +2,14 @@ import type { SampleSummary } from '../api'
 import { formatDimensions, formatSplit } from '../formatters'
 import DatasetImage from './DatasetImage'
 import HighlightedText from './HighlightedText'
+import SampleLink from './SampleLink'
 
 interface SampleCardProps {
   sample: SampleSummary
   query?: string
-  onOpen: () => void
 }
 
-function SampleCard({ sample, query = '', onOpen }: SampleCardProps) {
+function SampleCard({ sample, query = '' }: SampleCardProps) {
   const caption = sample.caption || 'No caption available'
   const matchedCaptions = query ? sample.matched_captions : []
   const accessibleCaption = matchedCaptions[0] ?? caption
@@ -41,15 +41,10 @@ function SampleCard({ sample, query = '', onOpen }: SampleCardProps) {
           {formatDimensions(sample.width, sample.height)}
         </span>
       </div>
-      <button
+      <SampleLink
         className="sample-card__open"
-        type="button"
+        sampleId={sample.id}
         aria-label={`View details for ${sample.source_id}: ${accessibleCaption}`}
-        onClick={(event) => {
-          // Safari and Firefox skip focusing a clicked button; the dialog restores focus here.
-          event.currentTarget.focus({ preventScroll: true })
-          onOpen()
-        }}
       />
     </article>
   )

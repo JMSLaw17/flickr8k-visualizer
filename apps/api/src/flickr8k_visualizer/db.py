@@ -86,7 +86,7 @@ def materialize_duplicate_groups(connection: sqlite3.Connection) -> int:
     return connection.execute("SELECT COUNT(*) FROM duplicate_groups").fetchone()[0]
 
 
-def _filter_clauses(filters: SampleFilters) -> tuple[str, list[object]]:
+def _filter_clauses(filters: SampleFilters) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     parameters: list[object] = []
 
@@ -133,8 +133,14 @@ def _filter_clauses(filters: SampleFilters) -> tuple[str, list[object]]:
             clauses.append(f"{column} < ?")
             parameters.append(high)
 
-    where_clause = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    return where_clause, parameters
+    return clauses, parameters
+
+
+def _compose_where_clause(clauses: list[str], *additional: str) -> str:
+    all_clauses = (*clauses, *additional)
+    if not all_clauses:
+        return ""
+    return " WHERE " + " AND ".join(f"({clause})" for clause in all_clauses)
 
 
 def list_samples(
@@ -145,7 +151,8 @@ def list_samples(
     filters: SampleFilters,
 ) -> tuple[int, list[dict[str, Any]]]:
     _require_database(database_path)
-    where_clause, parameters = _filter_clauses(filters)
+    clauses, parameters = _filter_clauses(filters)
+    where_clause = _compose_where_clause(clauses)
 
     try:
         with closing(connect_database(database_path)) as connection:
@@ -185,7 +192,12 @@ def list_samples(
     return total, records
 
 
-def get_sample(database_path: Path, sample_id: str) -> dict[str, Any] | None:
+def get_sample(
+    database_path: Path,
+    sample_id: str,
+    *,
+    filters: SampleFilters,
+) -> dict[str, Any] | None:
     _require_database(database_path)
     try:
         with closing(connect_database(database_path)) as connection:
@@ -202,10 +214,55 @@ def get_sample(database_path: Path, sample_id: str) -> dict[str, Any] | None:
                 return None
 
             captions = _load_captions(connection, [sample_id])
+            previous_id, next_id = _sample_neighbors(connection, sample_id, filters)
     except sqlite3.Error as error:
         raise DatabaseUnavailableError("Dataset database is not ready") from error
 
-    return {**dict(row), "captions": captions[sample_id]}
+    return {
+        **dict(row),
+        "captions": captions[sample_id],
+        "previous_id": previous_id,
+        "next_id": next_id,
+    }
+
+
+def _sample_neighbors(
+    connection: sqlite3.Connection,
+    sample_id: str,
+    filters: SampleFilters,
+) -> tuple[str | None, str | None]:
+    clauses, parameters = _filter_clauses(filters)
+    matching_sample = connection.execute(
+        f"SELECT 1 FROM samples{_compose_where_clause(clauses, 'id = ?')}",
+        (*parameters, sample_id),
+    ).fetchone()
+    if matching_sample is None:
+        return None, None
+
+    previous = connection.execute(
+        f"""
+        SELECT id
+        FROM samples
+        {_compose_where_clause(clauses, "id < ?")}
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (*parameters, sample_id),
+    ).fetchone()
+    next_sample = connection.execute(
+        f"""
+        SELECT id
+        FROM samples
+        {_compose_where_clause(clauses, "id > ?")}
+        ORDER BY id
+        LIMIT 1
+        """,
+        (*parameters, sample_id),
+    ).fetchone()
+    return (
+        previous["id"] if previous is not None else None,
+        next_sample["id"] if next_sample is not None else None,
+    )
 
 
 def get_overview_source(database_path: Path) -> dict[str, Any]:

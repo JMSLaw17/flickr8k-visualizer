@@ -1,5 +1,8 @@
+import { useMemo } from 'react'
+
 import {
   FILTER_KEYS,
+  filterSearchParams,
   type DatasetSplit,
   type DistributionBin,
   type SampleFilters,
@@ -33,6 +36,18 @@ export function parseSampleFilters(params: URLSearchParams): SampleFilters {
   return filters
 }
 
+export function sampleFiltersKey(params: URLSearchParams): string {
+  return filterSearchParams(parseSampleFilters(params)).toString()
+}
+
+export function useSampleFilters(params: URLSearchParams): SampleFilters {
+  const filtersKey = sampleFiltersKey(params)
+  return useMemo(
+    () => parseSampleFilters(new URLSearchParams(filtersKey)),
+    [filtersKey],
+  )
+}
+
 export function normalizeCaptionQuery(query: string): string {
   return [...query.trim()].slice(0, MAX_CAPTION_QUERY_LENGTH).join('')
 }
@@ -44,11 +59,7 @@ export function parseOffset(params: URLSearchParams): number {
 
 /** Gallery path with the given filters encoded as search parameters. */
 export function galleryPath(filters: SampleFilters): string {
-  const query = new URLSearchParams()
-  for (const key of FILTER_KEYS) {
-    const value = filters[key]
-    if (value !== undefined) query.set(key, String(value))
-  }
+  const query = filterSearchParams(filters)
   const encoded = query.toString()
   return encoded ? `/?${encoded}` : '/'
 }

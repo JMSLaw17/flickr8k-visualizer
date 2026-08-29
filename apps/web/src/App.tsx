@@ -1,23 +1,17 @@
 import { useEffect, useRef } from 'react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
+import RoutedDetailPanel from './components/RoutedDetailPanel'
 import GalleryPage from './pages/GalleryPage'
 import OverviewPage from './pages/OverviewPage'
-
-const routeMetadata: Record<string, { headingId: string; title: string }> = {
-  '/': { headingId: 'gallery-title', title: 'Browse · Flickr8k Explorer' },
-  '/overview': {
-    headingId: 'overview-title',
-    title: 'Dataset overview · Flickr8k Explorer',
-  },
-}
+import { getRouteMetadata } from './routes'
 
 function RouteChangeEffects() {
   const { pathname } = useLocation()
   const previousPathname = useRef(pathname)
 
   useEffect(() => {
-    const metadata = routeMetadata[pathname]
+    const metadata = getRouteMetadata(pathname)
     if (!metadata) return
 
     document.title = metadata.title
@@ -66,6 +60,8 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      <RoutedDetailPanel />
 
       <footer>
         <span>Flickr8k</span>

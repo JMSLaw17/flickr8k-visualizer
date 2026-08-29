@@ -22,6 +22,7 @@ from .models import (
     DatasetOverview,
     Health,
     SampleDetail,
+    SampleFilters,
     SampleList,
     SampleQuery,
     SampleSummary,
@@ -115,9 +116,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/api/samples/{sample_id}", response_model=SampleDetail)
-    def sample(sample_id: str) -> SampleDetail:
+    def sample(
+        sample_id: str,
+        filters: Annotated[SampleFilters, Query()],
+    ) -> SampleDetail:
         _require_prepared(settings)
-        record = get_sample(settings.database_path, sample_id)
+        record = get_sample(settings.database_path, sample_id, filters=filters)
         if record is None:
             raise HTTPException(status_code=404, detail="Sample not found")
         return _to_detail(record)
@@ -169,6 +173,8 @@ def _to_detail(record: dict[str, Any]) -> SampleDetail:
         image_url=_media_url(record["original_path"], "images"),
         thumbnail_url=_media_url(record["thumbnail_path"], "thumbnails"),
         captions=record["captions"],
+        previous_id=record["previous_id"],
+        next_id=record["next_id"],
     )
 
 

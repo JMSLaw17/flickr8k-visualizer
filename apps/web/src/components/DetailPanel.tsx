@@ -1,52 +1,109 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { getSample, type SampleDetail } from '../api'
+import {
+  filterSearchParams,
+  getSample,
+  type SampleDetail,
+  type SampleFilters,
+} from '../api'
+import { parseSampleFilters } from '../filters'
 import {
   formatDimensions,
   formatFileDescription,
   formatSplit,
   getErrorMessage,
 } from '../formatters'
+import { isEditableTarget } from '../interaction'
 import DatasetImage from './DatasetImage'
 
 type LoadState = 'loading' | 'ready' | 'error'
+type NavigationDirection = 'previous' | 'next'
 
 interface DetailPanelProps {
   sampleId: string
+  filters?: SampleFilters
   onClose: () => void
+  onNavigate?: (id: string) => void
 }
 
-function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
+const EMPTY_FILTERS: SampleFilters = {}
+
+function DetailPanel({
+  sampleId,
+  filters = EMPTY_FILTERS,
+  onClose,
+  onNavigate,
+}: DetailPanelProps) {
   const [sample, setSample] = useState<SampleDetail | null>(null)
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
   const [requestVersion, setRequestVersion] = useState(0)
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const previousButtonRef = useRef<HTMLButtonElement>(null)
+  const nextButtonRef = useRef<HTMLButtonElement>(null)
+  const pendingNavigationFocus = useRef<NavigationDirection | null>(null)
+  const readySample = status === 'ready' && sample?.id === sampleId ? sample : null
+  // Key requests by filter values, not the caller's object identity.
+  const filtersKey = filterSearchParams(filters).toString()
 
   const closeDetail = () => {
     if (dialogRef.current?.open) dialogRef.current.close()
     onClose()
   }
 
+  const navigateTo = (
+    id: string | null,
+    returnFocusTo: NavigationDirection | null = null,
+  ) => {
+    if (!id || !onNavigate) return
+    pendingNavigationFocus.current = returnFocusTo
+    if (returnFocusTo) panelRef.current?.focus({ preventScroll: true })
+    else closeButtonRef.current?.focus({ preventScroll: true })
+    onNavigate(id)
+  }
+
   useEffect(() => {
     const controller = new AbortController()
+    if (panelRef.current) panelRef.current.scrollTop = 0
+    setSample(null)
     setStatus('loading')
     setError('')
 
-    getSample(sampleId, controller.signal)
+    const requestFilters = parseSampleFilters(new URLSearchParams(filtersKey))
+    getSample(sampleId, requestFilters, controller.signal)
       .then((result) => {
+        if (controller.signal.aborted) return
         setSample(result)
         setStatus('ready')
       })
       .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        if (
+          controller.signal.aborted ||
+          (reason instanceof DOMException && reason.name === 'AbortError')
+        ) {
+          return
+        }
+        pendingNavigationFocus.current = null
+        closeButtonRef.current?.focus({ preventScroll: true })
         setError(getErrorMessage(reason))
         setStatus('error')
       })
 
     return () => controller.abort()
-  }, [requestVersion, sampleId])
+  }, [filtersKey, requestVersion, sampleId])
+
+  useEffect(() => {
+    const direction = pendingNavigationFocus.current
+    if (!readySample || !direction) return
+
+    const button =
+      direction === 'previous' ? previousButtonRef.current : nextButtonRef.current
+    if (button && !button.disabled) button.focus({ preventScroll: true })
+    else closeButtonRef.current?.focus({ preventScroll: true })
+    pendingNavigationFocus.current = null
+  }, [readySample])
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -55,6 +112,7 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     dialog.showModal()
+    closeButtonRef.current?.focus({ preventScroll: true })
 
     return () => {
       document.body.style.overflow = previousOverflow
@@ -66,8 +124,8 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
     <dialog
       ref={dialogRef}
       className="detail-dialog"
-      aria-label={status === 'ready' && sample ? undefined : 'Sample details'}
-      aria-labelledby={status === 'ready' && sample ? 'detail-title' : undefined}
+      aria-label={readySample ? undefined : 'Sample details'}
+      aria-labelledby={readySample ? 'detail-title' : undefined}
       onCancel={(event) => {
         event.preventDefault()
         closeDetail()
@@ -78,10 +136,35 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
           closeDetail()
         }
       }}
+      onKeyDown={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          isEditableTarget(event.target)
+        ) {
+          return
+        }
+
+        if (event.key === 'ArrowLeft' && readySample?.previous_id) {
+          event.preventDefault()
+          navigateTo(readySample.previous_id)
+        } else if (event.key === 'ArrowRight' && readySample?.next_id) {
+          event.preventDefault()
+          navigateTo(readySample.next_id)
+        }
+      }}
     >
       <section
+        ref={panelRef}
         className={`detail-panel${status === 'loading' ? ' detail-panel--loading' : ''}`}
+        tabIndex={-1}
       >
+        <p className="visually-hidden" aria-live="polite" aria-atomic="true">
+          {readySample ? `Loaded sample ${readySample.source_id}` : ''}
+        </p>
         <div className="detail-close-anchor">
           <button
             ref={closeButtonRef}
@@ -89,7 +172,6 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
             type="button"
             onClick={closeDetail}
             aria-label="Close details"
-            autoFocus
           >
             <span aria-hidden="true">×</span>
           </button>
@@ -119,36 +201,59 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
           </div>
         )}
 
-        {status === 'ready' && sample && (
+        {readySample && (
           <div className="detail-layout">
             <div className="detail-image-wrap">
               <DatasetImage
                 className="detail-image"
-                src={sample.image_url}
-                alt={sample.captions[0] ?? 'Flickr8k sample'}
-                width={sample.width}
-                height={sample.height}
+                src={readySample.image_url}
+                alt={readySample.captions[0] ?? 'Flickr8k sample'}
+                width={readySample.width}
+                height={readySample.height}
                 eager
               />
             </div>
 
             <div className="detail-content">
               <div className="detail-heading">
-                <span className={`split-badge split-badge--${sample.split}`}>
-                  {formatSplit(sample.split)}
+                <span className={`split-badge split-badge--${readySample.split}`}>
+                  {formatSplit(readySample.split)}
                 </span>
                 <p className="eyebrow">Dataset sample</p>
-                <h2 id="detail-title">{sample.source_id}</h2>
+                <h2 id="detail-title">{readySample.source_id}</h2>
               </div>
+
+              <nav className="detail-navigation" aria-label="Sample navigation">
+                <button
+                  ref={previousButtonRef}
+                  className="button button--secondary"
+                  type="button"
+                  disabled={!readySample.previous_id}
+                  aria-keyshortcuts="ArrowLeft"
+                  onClick={() => navigateTo(readySample.previous_id, 'previous')}
+                >
+                  ← Previous
+                </button>
+                <button
+                  ref={nextButtonRef}
+                  className="button button--secondary"
+                  type="button"
+                  disabled={!readySample.next_id}
+                  aria-keyshortcuts="ArrowRight"
+                  onClick={() => navigateTo(readySample.next_id, 'next')}
+                >
+                  Next →
+                </button>
+              </nav>
 
               <section className="caption-section" aria-labelledby="captions-title">
                 <div className="section-heading">
                   <h3 id="captions-title">Captions</h3>
-                  <span>{sample.captions.length}</span>
+                  <span>{readySample.captions.length}</span>
                 </div>
-                {sample.captions.length > 0 ? (
+                {readySample.captions.length > 0 ? (
                   <ul className="caption-list">
-                    {sample.captions.map((caption, index) => (
+                    {readySample.captions.map((caption, index) => (
                       <li key={`${caption}-${index}`}>{caption}</li>
                     ))}
                   </ul>
@@ -162,19 +267,21 @@ function DetailPanel({ sampleId, onClose }: DetailPanelProps) {
                 <dl className="metadata-list">
                   <div>
                     <dt>Dimensions</dt>
-                    <dd>{formatDimensions(sample.width, sample.height)} px</dd>
+                    <dd>{formatDimensions(readySample.width, readySample.height)} px</dd>
                   </div>
                   <div>
                     <dt>Stable ID</dt>
-                    <dd title={sample.id}>{sample.id}</dd>
+                    <dd title={readySample.id}>{readySample.id}</dd>
                   </div>
                   <div>
                     <dt>SHA-256</dt>
-                    <dd title={sample.content_sha256}>{sample.content_sha256}</dd>
+                    <dd title={readySample.content_sha256}>{readySample.content_sha256}</dd>
                   </div>
                   <div>
                     <dt>File</dt>
-                    <dd>{formatFileDescription(sample.mime_type, sample.file_size_bytes)}</dd>
+                    <dd>
+                      {formatFileDescription(readySample.mime_type, readySample.file_size_bytes)}
+                    </dd>
                   </div>
                 </dl>
               </section>

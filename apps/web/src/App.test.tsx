@@ -1,19 +1,52 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import App from './App'
-import type { SampleDetail, SampleSummary } from './api'
+import type { DatasetOverview, SampleDetail, SampleSummary } from './api'
 import DetailPanel from './components/DetailPanel'
 
-function renderApp(initialEntry = '/') {
+function LocationProbe() {
+  const { pathname, search } = useLocation()
+  return (
+    <span data-testid="location" hidden>
+      {pathname}
+      {search}
+    </span>
+  )
+}
+
+function HistoryControls() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button type="button" onClick={() => navigate(-1)}>
+        Test back
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        Test forward
+      </button>
+    </>
+  )
+}
+
+function renderApp(
+  initialEntry = '/',
+  { historyControls = false }: { historyControls?: boolean } = {},
+) {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <App />
+      <LocationProbe />
+      {historyControls && <HistoryControls />}
     </MemoryRouter>,
   )
+}
+
+function currentLocation(): string {
+  return screen.getByTestId('location').textContent ?? ''
 }
 
 const summary: SampleSummary = {
@@ -40,6 +73,33 @@ const detail: SampleDetail = {
     'A playful dog runs through a meadow.',
     'An animal is sprinting outdoors.',
   ],
+  previous_id: null,
+  next_id: null,
+}
+
+const navigationDetails: Record<string, SampleDetail> = {
+  'sample-a': {
+    ...detail,
+    id: 'sample-a',
+    source_id: 'first.jpg',
+    captions: ['First sample.'],
+    next_id: 'sample-b',
+  },
+  'sample-b': {
+    ...detail,
+    id: 'sample-b',
+    source_id: 'middle.jpg',
+    captions: ['Middle sample.'],
+    previous_id: 'sample-a',
+    next_id: 'sample-c',
+  },
+  'sample-c': {
+    ...detail,
+    id: 'sample-c',
+    source_id: 'last.jpg',
+    captions: ['Last sample.'],
+    previous_id: 'sample-b',
+  },
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -71,6 +131,22 @@ function StrictModeDetailHarness() {
   ) : null
 }
 
+function NavigableDetailHarness({
+  onClose = () => undefined,
+}: {
+  onClose?: () => void
+}) {
+  const [sampleId, setSampleId] = useState('sample-a')
+
+  return (
+    <DetailPanel
+      sampleId={sampleId}
+      onClose={onClose}
+      onNavigate={setSampleId}
+    />
+  )
+}
+
 it('shows every caption and the original at its exact dimensions', async () => {
   let resolveDetail!: (response: Response) => void
   const detailResponse = new Promise<Response>((resolve) => {
@@ -85,12 +161,20 @@ it('shows every caption and the original at its exact dimensions', async () => {
 
   renderApp()
 
-  const sampleCard = await screen.findByRole('button', {
+  const sampleCard = await screen.findByRole('link', {
     name: /a dog runs through a green field/i,
   })
   expect(
     screen.getByText(/showing 1–1 of 1/i, { selector: '.results-summary' }),
   ).toBeInTheDocument()
+
+  const showModal = HTMLDialogElement.prototype.showModal
+  vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    showModal.call(this)
+    sampleCard.focus()
+  })
 
   await user.click(sampleCard)
 
@@ -147,7 +231,7 @@ it('closes and aborts a deferred detail request', async () => {
 
   renderApp()
 
-  const sampleCard = await screen.findByRole('button', {
+  const sampleCard = await screen.findByRole('link', {
     name: /a dog runs through a green field/i,
   })
   await user.click(sampleCard)
@@ -163,6 +247,514 @@ it('closes and aborts a deferred detail request', async () => {
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(detailRequest.signal.aborted).toBe(true)
+})
+
+it('ignores a stale detail failure after navigation aborts its request', async () => {
+  let rejectFirst!: (reason: unknown) => void
+  const firstResponse = new Promise<Response>((_resolve, reject) => {
+    rejectFirst = reject
+  })
+  let resolveSecond!: (response: Response) => void
+  const secondResponse = new Promise<Response>((resolve) => {
+    resolveSecond = resolve
+  })
+  const fetchMock = vi
+    .fn()
+    .mockReturnValueOnce(firstResponse)
+    .mockReturnValueOnce(secondResponse)
+  vi.stubGlobal('fetch', fetchMock)
+
+  const { rerender } = render(
+    <DetailPanel sampleId="sample-a" onClose={() => undefined} />,
+  )
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  const firstRequest = fetchMock.mock.calls[0]?.[1] as { signal: AbortSignal }
+
+  rerender(<DetailPanel sampleId="sample-b" onClose={() => undefined} />)
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  const secondRequest = fetchMock.mock.calls[1]?.[1] as { signal: AbortSignal }
+  expect(firstRequest.signal.aborted).toBe(true)
+  expect(secondRequest.signal.aborted).toBe(false)
+
+  await act(async () => {
+    rejectFirst(new Error('Stale request failed'))
+  })
+
+  expect(screen.getByRole('status')).toHaveTextContent('Loading sample…')
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+  resolveSecond(
+    jsonResponse({
+      ...detail,
+      id: 'sample-b',
+      source_id: 'second.jpg',
+      captions: ['Second sample.'],
+    }),
+  )
+
+  expect(
+    await screen.findByRole('heading', { name: 'second.jpg' }),
+  ).toBeInTheDocument()
+})
+
+it('restores repeated Next navigation focus until the end of the result set', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const id = decodeURIComponent(String(input).slice('/api/samples/'.length))
+    return Promise.resolve(jsonResponse(navigationDetails[id]))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  render(<NavigableDetailHarness />)
+
+  await screen.findByRole('heading', { name: 'first.jpg' })
+  await user.click(screen.getByRole('button', { name: /next/i }))
+
+  await screen.findByRole('heading', { name: 'middle.jpg' })
+  const middleNext = screen.getByRole('button', { name: /next/i })
+  expect(middleNext).toBeEnabled()
+  expect(middleNext).toHaveFocus()
+
+  await user.keyboard('{Enter}')
+
+  await screen.findByRole('heading', { name: 'last.jpg' })
+  expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Close details' })).toHaveFocus()
+})
+
+it('ignores a second Enter while button navigation is loading', async () => {
+  let resolveNavigation!: (response: Response) => void
+  const navigationResponse = new Promise<Response>((resolve) => {
+    resolveNavigation = resolve
+  })
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(jsonResponse(navigationDetails['sample-a']))
+    .mockReturnValueOnce(navigationResponse)
+  vi.stubGlobal('fetch', fetchMock)
+  const onClose = vi.fn()
+  const user = userEvent.setup()
+
+  render(<NavigableDetailHarness onClose={onClose} />)
+
+  await screen.findByRole('heading', { name: 'first.jpg' })
+  const nextButton = screen.getByRole('button', { name: /next/i })
+  nextButton.focus()
+
+  await user.keyboard('{Enter}{Enter}')
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  const dialog = screen.getByRole('dialog')
+  expect(dialog).toHaveAttribute('open')
+  expect(dialog.querySelector('.detail-panel')).toHaveFocus()
+  expect(screen.getByRole('status')).toHaveTextContent('Loading sample…')
+  expect(onClose).not.toHaveBeenCalled()
+
+  resolveNavigation(jsonResponse(navigationDetails['sample-b']))
+  await screen.findByRole('heading', { name: 'middle.jpg' })
+})
+
+it('announces each sample after navigation finishes', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const id = decodeURIComponent(String(input).slice('/api/samples/'.length))
+    return Promise.resolve(jsonResponse(navigationDetails[id]))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  render(<NavigableDetailHarness />)
+
+  await screen.findByRole('heading', { name: 'first.jpg' })
+  const announcement = screen.getByText('Loaded sample first.jpg')
+  expect(announcement).toHaveClass('visually-hidden')
+  expect(announcement).toHaveAttribute('aria-live', 'polite')
+  expect(announcement).toHaveAttribute('aria-atomic', 'true')
+
+  await user.click(screen.getByRole('button', { name: /next/i }))
+
+  await screen.findByRole('heading', { name: 'middle.jpg' })
+  expect(announcement).toHaveTextContent('Loaded sample middle.jpg')
+})
+
+it('keeps Close focused after retrying a failed button navigation', async () => {
+  let resolveRetry!: (response: Response) => void
+  const retryResponse = new Promise<Response>((resolve) => {
+    resolveRetry = resolve
+  })
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(jsonResponse(navigationDetails['sample-a']))
+    .mockResolvedValueOnce(jsonResponse({ detail: 'Navigation failed' }, 503))
+    .mockReturnValueOnce(retryResponse)
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  render(<NavigableDetailHarness />)
+
+  await screen.findByRole('heading', { name: 'first.jpg' })
+  await user.click(screen.getByRole('button', { name: /next/i }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Navigation failed')
+  const failedDialog = screen.getByRole('dialog')
+  const closeButton = screen.getByRole('button', { name: 'Close details' })
+  expect(closeButton).toHaveFocus()
+  expect(failedDialog.querySelector('.detail-panel')).not.toHaveFocus()
+
+  await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+  expect(await screen.findByRole('status')).toHaveTextContent('Loading sample…')
+  expect(closeButton).toHaveFocus()
+
+  resolveRetry(jsonResponse(navigationDetails['sample-b']))
+  await screen.findByRole('heading', { name: 'middle.jpg' })
+  expect(screen.getByRole('button', { name: /next/i })).toBeEnabled()
+  expect(closeButton).toHaveFocus()
+})
+
+it('does not refetch detail for equivalent inline filters after a parent rerender', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(detail))
+  vi.stubGlobal('fetch', fetchMock)
+
+  const { rerender } = render(
+    <DetailPanel
+      sampleId={detail.id}
+      filters={{ split: 'train', q: 'green field' }}
+      onClose={() => undefined}
+    />,
+  )
+
+  await screen.findByRole('heading', { name: detail.source_id })
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    '/api/samples/stable-sample-id?split=train&q=green+field',
+    { signal: expect.any(AbortSignal) },
+  )
+
+  rerender(
+    <DetailPanel
+      sampleId={detail.id}
+      filters={{ q: 'green field', split: 'train' }}
+      onClose={() => undefined}
+    />,
+  )
+
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('heading', { name: detail.source_id })).toBeInTheDocument()
+})
+
+it('opens and closes a direct filtered sample URL without refetching the gallery', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input)
+    return Promise.resolve(
+      url.startsWith('/api/samples/stable-sample-id')
+        ? jsonResponse(detail)
+        : pageResponse([summary], { total: 25, offset: 24 }),
+    )
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?split=train&q=dog&offset=24&sample=stable-sample-id')
+
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
+  expect(
+    await screen.findByRole('heading', { name: detail.source_id }),
+  ).toBeInTheDocument()
+  expect(currentLocation()).toBe(
+    '/?split=train&q=dog&offset=24&sample=stable-sample-id',
+  )
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/samples?limit=24&offset=24&split=train&q=dog',
+    { signal: expect.any(AbortSignal) },
+  )
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/samples/stable-sample-id?split=train&q=dog',
+    { signal: expect.any(AbortSignal) },
+  )
+
+  await user.click(screen.getByRole('button', { name: 'Close details' }))
+
+  await waitFor(() => {
+    expect(currentLocation()).toBe('/?split=train&q=dog&offset=24')
+  })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Dataset samples' })).toHaveFocus()
+  })
+  expect(
+    fetchMock.mock.calls.filter(([input]) =>
+      String(input).startsWith('/api/samples?'),
+    ),
+  ).toHaveLength(1)
+})
+
+it('keeps the new route heading focused when leaving an app-opened drawer', async () => {
+  const pendingFrames = new Map<number, FrameRequestCallback>()
+  let nextFrameId = 0
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn((callback: FrameRequestCallback) => {
+      nextFrameId += 1
+      pendingFrames.set(nextFrameId, callback)
+      return nextFrameId
+    }),
+  )
+  vi.stubGlobal(
+    'cancelAnimationFrame',
+    vi.fn((frameId: number) => pendingFrames.delete(frameId)),
+  )
+
+  const routeOverview: DatasetOverview = {
+    sample_count: 1,
+    caption_count: detail.captions.length,
+    split_counts: { train: 1, validation: 0, test: 0 },
+    caption_lengths: [],
+    top_terms: [],
+    widths: [],
+    heights: [],
+    aspect_ratios: [],
+    duplicates: {
+      group_count: 1,
+      affected_sample_count: 1,
+      cross_split_group_count: 0,
+      groups: [
+        {
+          content_sha256: detail.content_sha256,
+          sample_count: 1,
+          splits: ['train'],
+          cross_split: false,
+          samples: [
+            {
+              id: summary.id,
+              source_id: summary.source_id,
+              split: summary.split,
+              thumbnail_url: summary.thumbnail_url,
+            },
+          ],
+        },
+      ],
+    },
+  }
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url === '/api/overview') return Promise.resolve(jsonResponse(routeOverview))
+    if (url.startsWith(`/api/samples/${summary.id}`)) {
+      return Promise.resolve(jsonResponse(detail))
+    }
+    return Promise.resolve(pageResponse([summary]))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp()
+
+  await user.click(
+    await screen.findByRole('link', { name: /a dog runs through a green field/i }),
+  )
+  await screen.findByRole('heading', { name: detail.source_id })
+
+  await user.click(screen.getByRole('link', { name: 'Overview' }))
+
+  const overviewHeading = await screen.findByRole('heading', {
+    name: 'Dataset overview',
+  })
+  const matchingOpener = await screen.findByRole('link', {
+    name: `View details for ${summary.source_id}`,
+  })
+  await waitFor(() => expect(overviewHeading).toHaveFocus())
+
+  act(() => {
+    for (const [frameId, callback] of pendingFrames) {
+      pendingFrames.delete(frameId)
+      callback(0)
+    }
+  })
+
+  expect(currentLocation()).toBe('/overview')
+  expect(overviewHeading).toHaveFocus()
+  expect(matchingOpener).not.toHaveFocus()
+})
+
+it('replaces sample history while navigating without wrapping or replacing the grid', async () => {
+  vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function (
+    this: HTMLDialogElement,
+    returnValue = '',
+  ) {
+    this.returnValue = returnValue
+    this.removeAttribute('open')
+  })
+
+  const middleSummary: SampleSummary = {
+    ...summary,
+    id: 'sample-b',
+    source_id: 'middle.jpg',
+    caption: 'Middle sample.',
+    matched_captions: ['Middle sample.'],
+  }
+  const detailsById: Record<string, SampleDetail> = {
+    'sample-a': {
+      ...detail,
+      id: 'sample-a',
+      source_id: 'first.jpg',
+      captions: ['First sample.'],
+      previous_id: null,
+      next_id: 'sample-b',
+    },
+    'sample-b': {
+      ...detail,
+      id: 'sample-b',
+      source_id: 'middle.jpg',
+      captions: ['Middle sample.'],
+      previous_id: 'sample-a',
+      next_id: 'sample-c',
+    },
+    'sample-c': {
+      ...detail,
+      id: 'sample-c',
+      source_id: 'last.jpg',
+      captions: ['Last sample.'],
+      previous_id: 'sample-b',
+      next_id: null,
+    },
+  }
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.startsWith('/api/samples?')) {
+      return Promise.resolve(
+        pageResponse([middleSummary], { total: 25, offset: 24 }),
+      )
+    }
+
+    const id = decodeURIComponent(url.slice('/api/samples/'.length).split('?')[0])
+    return Promise.resolve(jsonResponse(detailsById[id]))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?split=test&q=common&offset=24', { historyControls: true })
+
+  const sampleLink = await screen.findByRole('link', { name: /middle sample/i })
+  const grid = sampleLink.closest('.gallery-grid')
+  await user.click(sampleLink)
+
+  expect(
+    await screen.findByRole('heading', { name: 'middle.jpg' }),
+  ).toBeInTheDocument()
+  expect(currentLocation()).toBe(
+    '/?split=test&q=common&offset=24&sample=sample-b',
+  )
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/samples/sample-b?split=test&q=common',
+    { signal: expect.any(AbortSignal) },
+  )
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).getByRole('button', { name: /previous/i })).toBeEnabled()
+  expect(within(dialog).getByRole('button', { name: /next/i })).toBeEnabled()
+
+  expect(fireEvent.keyDown(dialog, { key: 'ArrowRight' })).toBe(false)
+  expect(
+    await screen.findByRole('heading', { name: 'last.jpg' }),
+  ).toBeInTheDocument()
+  expect(currentLocation()).toBe(
+    '/?split=test&q=common&offset=24&sample=sample-c',
+  )
+  expect(within(dialog).getByRole('button', { name: /next/i })).toBeDisabled()
+
+  const callsAtLastSample = fetchMock.mock.calls.length
+  expect(fireEvent.keyDown(dialog, { key: 'ArrowRight' })).toBe(true)
+  expect(fetchMock).toHaveBeenCalledTimes(callsAtLastSample)
+
+  await user.click(within(dialog).getByRole('button', { name: /previous/i }))
+  expect(
+    await screen.findByRole('heading', { name: 'middle.jpg' }),
+  ).toBeInTheDocument()
+  expect(fireEvent.keyDown(dialog, { key: 'ArrowLeft' })).toBe(false)
+  expect(
+    await screen.findByRole('heading', { name: 'first.jpg' }),
+  ).toBeInTheDocument()
+  expect(currentLocation()).toBe(
+    '/?split=test&q=common&offset=24&sample=sample-a',
+  )
+  expect(within(dialog).getByRole('button', { name: /previous/i })).toBeDisabled()
+
+  const callsAtFirstSample = fetchMock.mock.calls.length
+  expect(fireEvent.keyDown(dialog, { key: 'ArrowLeft' })).toBe(true)
+  expect(fireEvent.keyDown(dialog, { key: 'ArrowRight', shiftKey: true })).toBe(true)
+  expect(fetchMock).toHaveBeenCalledTimes(callsAtFirstSample)
+
+  await user.click(screen.getByRole('button', { name: 'Test back' }))
+
+  await waitFor(() => {
+    expect(currentLocation()).toBe('/?split=test&q=common&offset=24')
+  })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await waitFor(() => expect(sampleLink).toHaveFocus())
+  expect(sampleLink.closest('.gallery-grid')).toBe(grid)
+  expect(
+    fetchMock.mock.calls.filter(([input]) =>
+      String(input).startsWith('/api/samples?'),
+    ),
+  ).toHaveLength(1)
+
+  await user.click(screen.getByRole('button', { name: 'Test forward' }))
+
+  expect(
+    await screen.findByRole('heading', { name: 'first.jpg' }),
+  ).toBeInTheDocument()
+  expect(currentLocation()).toBe(
+    '/?split=test&q=common&offset=24&sample=sample-a',
+  )
+  expect(
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true })),
+  ).toBe(false)
+  await waitFor(() => {
+    expect(currentLocation()).toBe('/?split=test&q=common&offset=24')
+  })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('focuses caption search with slash except from editable controls or an open drawer', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input).startsWith('/api/samples/stable-sample-id')
+        ? jsonResponse(detail)
+        : pageResponse([summary]),
+    ),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp()
+
+  const sampleLink = await screen.findByRole('link', {
+    name: /a dog runs through a green field/i,
+  })
+  const galleryHeading = screen.getByRole('heading', { name: 'Dataset samples' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  expect(searchInput).toHaveAttribute('aria-keyshortcuts', '/')
+  galleryHeading.focus()
+
+  expect(fireEvent.keyDown(document, { key: '/' })).toBe(false)
+  expect(searchInput).toHaveFocus()
+  expect(fireEvent.keyDown(searchInput, { key: '/' })).toBe(true)
+
+  const splitSelect = screen.getByLabelText('Dataset split')
+  splitSelect.focus()
+  expect(fireEvent.keyDown(splitSelect, { key: '/' })).toBe(true)
+  expect(splitSelect).toHaveFocus()
+
+  galleryHeading.focus()
+  expect(fireEvent.keyDown(document, { key: '/', ctrlKey: true })).toBe(true)
+  expect(galleryHeading).toHaveFocus()
+
+  await user.click(sampleLink)
+  await screen.findByRole('heading', { name: detail.source_id })
+  const closeButton = screen.getByRole('button', { name: 'Close details' })
+  expect(closeButton).toHaveFocus()
+
+  expect(fireEvent.keyDown(document, { key: '/' })).toBe(true)
+  expect(closeButton).toHaveFocus()
+  expect(searchInput).not.toHaveFocus()
 })
 
 it('balances the native dialog lifecycle under Strict Mode', async () => {
@@ -215,7 +807,7 @@ it('retries detail errors and handles a failed original image', async () => {
 
   renderApp()
   await user.click(
-    await screen.findByRole('button', { name: /a dog runs through a green field/i }),
+    await screen.findByRole('link', { name: /a dog runs through a green field/i }),
   )
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -274,11 +866,11 @@ it('paginates, resets a changed filter, and preserves gallery state after detail
 
   renderApp()
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(screen.getByRole('button', { name: /← previous/i })).toBeDisabled()
 
   await user.click(screen.getByRole('button', { name: /next →/i }))
-  const unfilteredSecondPageCard = await screen.findByRole('button', {
+  const unfilteredSecondPageCard = await screen.findByRole('link', {
     name: /a sample on the second page/i,
   })
   expect(unfilteredSecondPageCard).toBeInTheDocument()
@@ -295,11 +887,11 @@ it('paginates, resets a changed filter, and preserves gallery state after detail
     )
   })
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(screen.getByRole('button', { name: /← previous/i })).toBeDisabled()
 
   await user.click(screen.getByRole('button', { name: /next →/i }))
-  const filteredSecondPageCard = await screen.findByRole('button', {
+  const filteredSecondPageCard = await screen.findByRole('link', {
     name: /a sample on the second page/i,
   })
   expect(fetchMock).toHaveBeenLastCalledWith(
@@ -337,7 +929,7 @@ it('retries a failed gallery request', async () => {
   await user.click(screen.getByRole('button', { name: 'Try again' }))
 
   expect(
-    await screen.findByRole('button', { name: /a dog runs through a green field/i }),
+    await screen.findByRole('link', { name: /a dog runs through a green field/i }),
   ).toBeInTheDocument()
   expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0', {
     signal: expect.any(AbortSignal),
@@ -372,7 +964,7 @@ it('returns from an empty filtered result to the unfiltered gallery', async () =
 
   renderApp()
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   await user.selectOptions(screen.getByLabelText('Dataset split'), 'validation')
 
   expect(await screen.findByText('No samples found')).toBeInTheDocument()
@@ -380,7 +972,7 @@ it('returns from an empty filtered result to the unfiltered gallery', async () =
   await user.click(screen.getByRole('button', { name: 'Clear filters' }))
 
   expect(
-    await screen.findByRole('button', { name: /a dog runs through a green field/i }),
+    await screen.findByRole('link', { name: /a dog runs through a green field/i }),
   ).toBeInTheDocument()
   expect(screen.getByLabelText('Dataset split')).toHaveValue('all')
   expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0', {
@@ -399,7 +991,7 @@ it('applies URL filters to the request and removes them through chips', async ()
 
   renderApp('/?term=dog&min_ratio=1.25&max_ratio=1.5&offset=24')
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(fetchMock).toHaveBeenCalledWith(
     '/api/samples?limit=24&offset=24&term=dog&min_ratio=1.25&max_ratio=1.5',
     { signal: expect.any(AbortSignal) },
@@ -444,7 +1036,7 @@ it('submits and paginates a caption search while preserving other filters', asyn
 
   renderApp('/?split=test&term=dog&offset=24')
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
   await user.type(searchInput, `  ${query}  `)
   expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -474,7 +1066,7 @@ it('submits and paginates a caption search while preserving other filters', asyn
       (mark) => mark.textContent,
     ),
   ).toEqual(['dog & cat', 'DOG & CAT'])
-  const detailsButton = within(resultCard as HTMLElement).getByRole('button', {
+  const detailsButton = within(resultCard as HTMLElement).getByRole('link', {
     name: `View details for 123456789.jpg: ${searchSummary.matched_captions[0]}`,
   })
   expect(detailsButton).toBeInTheDocument()
@@ -575,7 +1167,7 @@ it('clears an empty caption search without dropping the split filter', async () 
 
   await user.click(screen.getByRole('button', { name: 'Clear search' }))
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('')
   expect(screen.getByLabelText('Dataset split')).toHaveValue('validation')
   expect(fetchMock).toHaveBeenLastCalledWith(
@@ -597,7 +1189,7 @@ it('clears every filter from a combined empty caption search', async () => {
   await screen.findByRole('heading', { name: 'No matching captions' })
   await user.click(screen.getByRole('button', { name: 'Clear all filters' }))
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('')
   expect(screen.getByLabelText('Dataset split')).toHaveValue('all')
   expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0', {
@@ -652,7 +1244,7 @@ it('treats a blank search submission as clearing the query', async () => {
   await user.clear(searchInput)
   await user.click(screen.getByRole('button', { name: 'Search' }))
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   expect(searchInput).toHaveValue('')
   expect(fetchMock).toHaveBeenLastCalledWith(
     '/api/samples?limit=24&offset=0&split=test',
@@ -766,7 +1358,7 @@ it('moves focus and title across page and chart navigation', async () => {
 
   renderApp()
 
-  await screen.findByRole('button', { name: /a dog runs through a green field/i })
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
   const initialHeading = screen.getByRole('heading', { name: 'Dataset samples' })
   expect(initialHeading).not.toHaveFocus()
   expect(document.title).toBe('Browse · Flickr8k Explorer')

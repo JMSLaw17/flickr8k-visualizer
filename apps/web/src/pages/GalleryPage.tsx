@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FILTER_KEYS, listSamples, type SamplePage } from '../api'
-import DetailPanel from '../components/DetailPanel'
 import GallerySkeleton from '../components/GallerySkeleton'
 import SampleCard from '../components/SampleCard'
 import {
@@ -10,10 +9,11 @@ import {
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
   parseOffset,
-  parseSampleFilters,
   type FilterChip,
+  useSampleFilters,
 } from '../filters'
 import { getErrorMessage, splitLabels, type SplitFilter } from '../formatters'
+import { isEditableTarget } from '../interaction'
 
 const PAGE_SIZE = 24
 
@@ -25,10 +25,12 @@ function GalleryPage() {
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
   const [requestVersion, setRequestVersion] = useState(0)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const setSearchParamsRef = useRef(setSearchParams)
 
-  const filters = useMemo(() => parseSampleFilters(searchParams), [searchParams])
+  const filters = useSampleFilters(searchParams)
   const offset = parseOffset(searchParams)
+  const drawerOpen = searchParams.has('sample')
   const committedQuery = filters.q ?? ''
   const [draftQuery, setDraftQuery] = useState(committedQuery)
   const draftResetKey = JSON.stringify(
@@ -40,8 +42,34 @@ function GalleryPage() {
     filters.split !== undefined || chips.some((chip) => !chip.keys.includes('q'))
 
   useEffect(() => {
+    setSearchParamsRef.current = setSearchParams
+  }, [setSearchParams])
+
+  useEffect(() => {
     setDraftQuery(committedQuery)
   }, [committedQuery, draftResetKey])
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (
+        event.key !== '/' ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        drawerOpen ||
+        isEditableTarget(event.target)
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      searchInputRef.current?.focus()
+    }
+
+    document.addEventListener('keydown', focusSearch)
+    return () => document.removeEventListener('keydown', focusSearch)
+  }, [drawerOpen])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -52,7 +80,7 @@ function GalleryPage() {
     listSamples({ limit: PAGE_SIZE, offset, ...filters }, controller.signal)
       .then((result) => {
         if (result.total > 0 && result.items.length === 0 && result.offset > 0) {
-          setSearchParams((previous) => {
+          setSearchParamsRef.current((previous) => {
             const next = new URLSearchParams(previous)
             next.delete('offset')
             return next
@@ -70,7 +98,7 @@ function GalleryPage() {
       })
 
     return () => controller.abort()
-  }, [filters, offset, requestVersion, setSearchParams])
+  }, [filters, offset, requestVersion])
 
   const updateParams = (mutate: (params: URLSearchParams) => void) => {
     setSearchParams((previous) => {
@@ -183,8 +211,10 @@ function GalleryPage() {
             <label htmlFor="caption-search">Search captions</label>
             <div className="search-control__row">
               <input
+                ref={searchInputRef}
                 id="caption-search"
                 type="search"
+                aria-keyshortcuts="/"
                 value={draftQuery}
                 onChange={(event) => setDraftQuery(event.target.value)}
                 placeholder="Enter an exact phrase"
@@ -295,7 +325,6 @@ function GalleryPage() {
                 key={sample.id}
                 sample={sample}
                 query={committedQuery}
-                onOpen={() => setSelectedId(sample.id)}
               />
             ))}
           </div>
@@ -326,8 +355,6 @@ function GalleryPage() {
           )}
         </>
       )}
-
-      {selectedId && <DetailPanel sampleId={selectedId} onClose={() => setSelectedId(null)} />}
     </section>
   )
 }

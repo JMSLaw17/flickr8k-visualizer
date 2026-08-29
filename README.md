@@ -8,7 +8,9 @@ After preparation, the running application does not contact Hugging Face or any 
 
 - **Browse**: exact caption search across all five captions with matching text
   highlighted, a paginated thumbnail gallery with split filtering, and a detail
-  drawer showing every caption and the stored image metadata.
+  drawer showing every caption and the stored image metadata. Gallery state and
+  open samples have direct, shareable URLs. Results stay in ascending sample-ID
+  order, and previous/next navigation follows the complete filtered result set.
 - **Overview**: sample counts by split, the caption-length distribution, common
   caption terms, image width/height distributions, and the aspect-ratio
   distribution. Every chart value links to the gallery filtered to the matching
@@ -17,6 +19,10 @@ After preparation, the running application does not contact Hugging Face or any 
 - **Data quality**: exact-duplicate groups detected by content SHA-256, the
   number of affected images, cross-split duplicate groups highlighted
   separately, and one-click access to each duplicate's detail view.
+
+Keyboard shortcuts: press `/` to focus caption search, use the Left and Right
+Arrow keys to move between samples in the detail drawer, and press Escape to
+close it.
 
 ## Prerequisites
 
