@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
-import RoutedDetailPanel from './components/RoutedDetailPanel'
-import GalleryPage from './pages/GalleryPage'
-import OverviewPage from './pages/OverviewPage'
+import RoutedDetailPanel from './detail/RoutedDetailPanel'
+import GalleryPage from './gallery/GalleryPage'
+import OverviewPage from './overview/OverviewPage'
 import { getRouteMetadata } from './routes'
 
 function RouteChangeEffects() {

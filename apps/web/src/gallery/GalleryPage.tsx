@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { FILTER_KEYS, listSamples, type SamplePage } from '../api'
-import GallerySkeleton from '../components/GallerySkeleton'
-import SampleCard from '../components/SampleCard'
+import { FILTER_KEYS, listSamples, type SamplePage } from '../dataset/api'
+import GallerySkeleton from './GallerySkeleton'
+import SampleCard from './SampleCard'
 import {
   filterChips,
   MAX_CAPTION_QUERY_LENGTH,
@@ -11,9 +11,13 @@ import {
   parseOffset,
   type FilterChip,
   useSampleFilters,
-} from '../filters'
-import { getErrorMessage, splitLabels, type SplitFilter } from '../formatters'
-import { isEditableTarget } from '../interaction'
+} from '../dataset/filters'
+import {
+  getErrorMessage,
+  splitLabels,
+  type SplitFilter,
+} from '../dataset/formatters'
+import { isEditableTarget } from '../shared/interaction'
 
 const PAGE_SIZE = 24
 

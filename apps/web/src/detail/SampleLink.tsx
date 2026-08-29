@@ -1,6 +1,6 @@
 import { Link, useLocation, type LinkProps } from 'react-router-dom'
 
-import { appOpenedDrawerState } from '../sampleRoute'
+import { appOpenedDrawerState } from './sampleRoute'
 
 type SampleLinkProps = Omit<LinkProps, 'state' | 'to'> & {
   sampleId: string

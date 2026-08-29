@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { useSampleFilters } from '../filters'
+import { useSampleFilters } from '../dataset/filters'
 import { getRouteMetadata } from '../routes'
-import { drawerOpenerId, isAppOpenedDrawer } from '../sampleRoute'
 import DetailPanel from './DetailPanel'
+import { drawerOpenerId, isAppOpenedDrawer } from './sampleRoute'
 
 function RoutedDetailPanel() {
   const location = useLocation()

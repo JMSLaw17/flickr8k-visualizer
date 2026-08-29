@@ -5,16 +5,16 @@ import {
   getSample,
   type SampleDetail,
   type SampleFilters,
-} from '../api'
-import { parseSampleFilters } from '../filters'
+} from '../dataset/api'
+import { parseSampleFilters } from '../dataset/filters'
 import {
   formatDimensions,
   formatFileDescription,
   formatSplit,
   getErrorMessage,
-} from '../formatters'
-import { isEditableTarget } from '../interaction'
-import DatasetImage from './DatasetImage'
+} from '../dataset/formatters'
+import DatasetImage from '../shared/DatasetImage'
+import { isEditableTarget } from '../shared/interaction'
 
 type LoadState = 'loading' | 'ready' | 'error'
 type NavigationDirection = 'previous' | 'next'

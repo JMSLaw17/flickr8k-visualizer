@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import type { DatasetOverview, SampleDetail } from '../api'
-import RoutedDetailPanel from '../components/RoutedDetailPanel'
+import type { DatasetOverview, SampleDetail } from '../dataset/api'
+import RoutedDetailPanel from '../detail/RoutedDetailPanel'
 import OverviewPage from './OverviewPage'
 
 const overview: DatasetOverview = {

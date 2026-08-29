@@ -1,12 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { getOverview, type DatasetOverview, type DuplicateSummary } from '../api'
-import BarList from '../components/BarList'
-import DatasetImage from '../components/DatasetImage'
-import Histogram from '../components/Histogram'
-import SampleLink from '../components/SampleLink'
-import { binFilters, galleryPath, SPLITS } from '../filters'
-import { formatSplit, getErrorMessage } from '../formatters'
+import {
+  getOverview,
+  type DatasetOverview,
+  type DuplicateSummary,
+} from '../dataset/api'
+import { binFilters, galleryPath, SPLITS } from '../dataset/filters'
+import { formatSplit, getErrorMessage } from '../dataset/formatters'
+import SampleLink from '../detail/SampleLink'
+import DatasetImage from '../shared/DatasetImage'
+import BarList from './BarList'
+import Histogram from './Histogram'
 
 type LoadState = 'loading' | 'ready' | 'error'
 

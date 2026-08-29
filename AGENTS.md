@@ -12,9 +12,12 @@ the code.
 
 - `apps/api`: FastAPI, SQLite access, ingestion, and Pytest
 - `apps/web`: React, TypeScript, Vite, and Vitest
-- `apps/web/src/components`: reusable UI components
-- `apps/web/src/pages`: routed pages (gallery, overview)
-- `apps/web/src/api.ts`: frontend API calls
+- `apps/web/src/dataset`: API calls, filters, and data formatting
+- `apps/web/src/gallery`: gallery page and its components
+- `apps/web/src/overview`: overview page, charts, and summaries
+- `apps/web/src/detail`: sample drawer, links, and drawer routing
+- `apps/web/src/shared`: UI and interaction code shared by features
+- `apps/web/src/test`: shared test setup and cross-feature integration tests
 - `datasets/flickr8k.lock.json`: tracked dataset revision and shard integrity metadata
 - `data/flickr8k`: generated dataset artifacts; ignored by Git
 

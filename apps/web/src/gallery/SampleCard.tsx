@@ -1,8 +1,8 @@
-import type { SampleSummary } from '../api'
-import { formatDimensions, formatSplit } from '../formatters'
-import DatasetImage from './DatasetImage'
+import type { SampleSummary } from '../dataset/api'
+import { formatDimensions, formatSplit } from '../dataset/formatters'
+import SampleLink from '../detail/SampleLink'
+import DatasetImage from '../shared/DatasetImage'
 import HighlightedText from './HighlightedText'
-import SampleLink from './SampleLink'
 
 interface SampleCardProps {
   sample: SampleSummary

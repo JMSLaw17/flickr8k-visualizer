@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { CSSProperties } from 'react'
 
-import type { DistributionBin } from '../api'
+import type { DistributionBin } from '../dataset/api'
 
 interface HistogramProps {
   bins: DistributionBin[]
