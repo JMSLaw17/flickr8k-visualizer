@@ -18,6 +18,8 @@ class SampleSummary(BaseModel):
     thumbnail_url: str
     caption: str | None
     matched_captions: list[str]
+    # CLIP cosine similarity to the rank query; null in unranked listings.
+    similarity: float | None = None
 
 
 class SampleDetail(BaseModel):
@@ -32,14 +34,20 @@ class SampleDetail(BaseModel):
     image_url: str
     thumbnail_url: str
     captions: list[str]
+    # Neighbors follow ranked order when a rank context is given, stable-ID
+    # order otherwise; similarity is null without a rank context.
     previous_id: str | None
     next_id: str | None
+    similarity: float | None = None
 
 
 class SampleList(BaseModel):
     total: int
     limit: int
     offset: int
+    # Whether rank requests can currently be served; refreshed on every
+    # listing so the gallery can disable the ranking input accurately.
+    visual_ranking_ready: bool
     items: list[SampleSummary]
 
 
@@ -64,8 +72,25 @@ class SampleFilters(BaseModel):
         return trim_caption_query(value) if isinstance(value, str) else value
 
 
-class SampleQuery(SampleFilters):
-    """Full /api/samples query string: pagination plus the shared filters."""
+class RankedSampleFilters(SampleFilters):
+    """Filters plus the optional CLIP ranking description.
+
+    rank orders the filtered results by CLIP cosine similarity to the given
+    description; it never changes which samples match. The 200-character cap
+    matches the search inputs; the tokenizer truncates any description whose
+    token sequence exceeds CLIP's 77-token context window.
+    """
+
+    rank: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("rank", mode="before")
+    @classmethod
+    def trim_rank(cls, value: object) -> object:
+        return trim_caption_query(value) if isinstance(value, str) else value
+
+
+class SampleQuery(RankedSampleFilters):
+    """Full /api/samples query string: pagination plus the ranked filters."""
 
     limit: int = Field(default=24, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
@@ -119,3 +144,4 @@ class DatasetOverview(BaseModel):
 
 class Health(BaseModel):
     status: str
+    visual_ranking_ready: bool

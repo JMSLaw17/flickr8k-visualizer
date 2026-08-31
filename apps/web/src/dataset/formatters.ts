@@ -23,6 +23,10 @@ export function formatFileDescription(mimeType: string, fileSize: number): strin
   })} KB`
 }
 
+export function formatSimilarity(value: number): string {
+  return value.toFixed(3)
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }

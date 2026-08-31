@@ -4,12 +4,13 @@ import {
   filterSearchParams,
   getSample,
   type SampleDetail,
-  type SampleFilters,
+  type SampleDetailParams,
 } from '../dataset/api'
-import { parseSampleFilters } from '../dataset/filters'
+import { parseRank, parseSampleFilters } from '../dataset/filters'
 import {
   formatDimensions,
   formatFileDescription,
+  formatSimilarity,
   formatSplit,
   getErrorMessage,
 } from '../dataset/formatters'
@@ -21,12 +22,12 @@ type NavigationDirection = 'previous' | 'next'
 
 interface DetailPanelProps {
   sampleId: string
-  filters?: SampleFilters
+  filters?: SampleDetailParams
   onClose: () => void
-  onNavigate?: (id: string) => void
+  onNavigate: (id: string) => void
 }
 
-const EMPTY_FILTERS: SampleFilters = {}
+const EMPTY_FILTERS: SampleDetailParams = {}
 
 function DetailPanel({
   sampleId,
@@ -45,8 +46,10 @@ function DetailPanel({
   const nextButtonRef = useRef<HTMLButtonElement>(null)
   const pendingNavigationFocus = useRef<NavigationDirection | null>(null)
   const readySample = status === 'ready' && sample?.id === sampleId ? sample : null
-  // Key requests by filter values, not the caller's object identity.
-  const filtersKey = filterSearchParams(filters).toString()
+  // Key requests by filter and rank values, not the caller's object identity.
+  const filtersQuery = filterSearchParams(filters)
+  if (filters.rank) filtersQuery.set('rank', filters.rank)
+  const filtersKey = filtersQuery.toString()
 
   const closeDetail = () => {
     if (dialogRef.current?.open) dialogRef.current.close()
@@ -57,7 +60,7 @@ function DetailPanel({
     id: string | null,
     returnFocusTo: NavigationDirection | null = null,
   ) => {
-    if (!id || !onNavigate) return
+    if (!id) return
     pendingNavigationFocus.current = returnFocusTo
     if (returnFocusTo) panelRef.current?.focus({ preventScroll: true })
     else closeButtonRef.current?.focus({ preventScroll: true })
@@ -71,7 +74,10 @@ function DetailPanel({
     setStatus('loading')
     setError('')
 
-    const requestFilters = parseSampleFilters(new URLSearchParams(filtersKey))
+    const params = new URLSearchParams(filtersKey)
+    const requestFilters: SampleDetailParams = parseSampleFilters(params)
+    const rank = parseRank(params)
+    if (rank) requestFilters.rank = rank
     getSample(sampleId, requestFilters, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return
@@ -221,6 +227,11 @@ function DetailPanel({
                 </span>
                 <p className="eyebrow">Dataset sample</p>
                 <h2 id="detail-title">{readySample.source_id}</h2>
+                {typeof readySample.similarity === 'number' && (
+                  <p className="detail-similarity">
+                    CLIP cosine similarity: {formatSimilarity(readySample.similarity)}
+                  </p>
+                )}
               </div>
 
               <nav className="detail-navigation" aria-label="Sample navigation">

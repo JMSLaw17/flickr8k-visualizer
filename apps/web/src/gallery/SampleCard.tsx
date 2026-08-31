@@ -1,5 +1,5 @@
 import type { SampleSummary } from '../dataset/api'
-import { formatDimensions, formatSplit } from '../dataset/formatters'
+import { formatDimensions, formatSimilarity, formatSplit } from '../dataset/formatters'
 import SampleLink from '../detail/SampleLink'
 import DatasetImage from '../shared/DatasetImage'
 import HighlightedText from './HighlightedText'
@@ -36,6 +36,11 @@ function SampleCard({ sample, query = '' }: SampleCardProps) {
           </div>
         ) : (
           <p className="sample-card__caption">{caption}</p>
+        )}
+        {typeof sample.similarity === 'number' && (
+          <p className="sample-card__similarity">
+            CLIP cosine similarity: {formatSimilarity(sample.similarity)}
+          </p>
         )}
         <span className="sample-card__meta">
           {formatDimensions(sample.width, sample.height)}

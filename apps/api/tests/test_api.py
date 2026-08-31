@@ -137,7 +137,7 @@ def test_health(client: TestClient) -> None:
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "visual_ranking_ready": False}
 
 
 def test_lists_paginated_samples(client: TestClient) -> None:
@@ -166,6 +166,7 @@ def test_filters_samples_and_orders_captions(client: TestClient) -> None:
         "thumbnail_url": "/media/thumbnails/first%20image.jpg",
         "caption": "The first caption.",
         "matched_captions": [],
+        "similarity": None,
     }
 
 
@@ -212,6 +213,7 @@ def test_gets_one_sample(client: TestClient) -> None:
         ],
         "previous_id": "sample-a",
         "next_id": "sample-c",
+        "similarity": None,
     }
 
 
@@ -327,7 +329,13 @@ def test_accepts_maximum_limit_and_offset_at_end(client: TestClient) -> None:
     response = client.get("/api/samples", params={"limit": 100, "offset": 3})
 
     assert response.status_code == 200
-    assert response.json() == {"total": 3, "limit": 100, "offset": 3, "items": []}
+    assert response.json() == {
+        "total": 3,
+        "limit": 100,
+        "offset": 3,
+        "visual_ranking_ready": False,
+        "items": [],
+    }
 
 
 @pytest.mark.parametrize(
@@ -403,6 +411,7 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         "split",
         "term",
         "q",
+        "rank",
         "min_words",
         "max_words",
         "min_width",
@@ -421,6 +430,16 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
     q_schema = q_parameter["schema"]["anyOf"][0]
     assert q_schema["minLength"] == 1
     assert q_schema["maxLength"] == 200
+
+    rank_parameter = next(
+        parameter
+        for parameter in list_operation["parameters"]
+        if parameter["name"] == "rank"
+    )
+    rank_schema = rank_parameter["schema"]["anyOf"][0]
+    assert rank_schema["minLength"] == 1
+    assert rank_schema["maxLength"] == 200
+    assert "/api/visual-search" not in schema["paths"]
 
 
 @pytest.mark.parametrize(
@@ -610,6 +629,7 @@ def test_caption_search_returns_an_empty_page(client: TestClient) -> None:
         "total": 0,
         "limit": 24,
         "offset": 0,
+        "visual_ranking_ready": False,
         "items": [],
     }
 

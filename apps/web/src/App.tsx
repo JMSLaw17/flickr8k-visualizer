@@ -43,13 +43,6 @@ function App() {
             </NavLink>
             <NavLink to="/overview">Overview</NavLink>
           </nav>
-          <div className="local-status">
-            <span className="local-status__dot" aria-hidden="true" />
-            <span>
-              <strong>Local dataset</strong>
-              Prepared and served from this machine
-            </span>
-          </div>
         </div>
       </header>
 

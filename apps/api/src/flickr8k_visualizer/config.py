@@ -19,6 +19,22 @@ class Settings:
     def ready_path(self) -> Path:
         return self.data_dir / ".ready"
 
+    @property
+    def visual_search_dir(self) -> Path:
+        return self.data_dir / "visual-search"
+
+    @property
+    def model_dir(self) -> Path:
+        return self.visual_search_dir / "model"
+
+    @property
+    def visual_manifest_path(self) -> Path:
+        return self.visual_search_dir / "manifest.json"
+
+    @property
+    def visual_ready_path(self) -> Path:
+        return self.visual_search_dir / ".ready"
+
     @classmethod
     def from_env(cls) -> Settings:
         data_dir = _path_from_env("FLICKR8K_DATA_DIR", DEFAULT_DATA_DIR)

@@ -16,7 +16,6 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
-from urllib.request import Request, urlopen
 
 import pyarrow.parquet as parquet
 from PIL import Image, ImageOps
@@ -30,12 +29,13 @@ from .dataset_lock import (
     ready_marker_matches_lock,
 )
 from .db import connect_database, initialize_database, materialize_duplicate_groups
+from .download import download_verified_file, verify_file
+from .visual_search import invalidate_visual_ready, prepare_visual_search
 
 LOGGER = logging.getLogger(__name__)
 
 CAPTION_COLUMN = re.compile(r"^caption_(\d+)$")
 THUMBNAIL_SIZE = (480, 480)
-DOWNLOAD_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +190,7 @@ def ingest_downloaded_shards(
     thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
     for shard, shard_path in shard_paths.items():
-        _verify_file(shard_path, shard.size_bytes, shard.sha256)
+        verify_file(shard_path, shard.size_bytes, shard.sha256)
 
     database_path = data_dir / "flickr8k.sqlite3"
     manifest_path = data_dir / "manifest.json"
@@ -254,6 +254,9 @@ def ingest_downloaded_shards(
         )
         _write_manifest(temporary_manifest_path, manifest)
         ready_path.unlink(missing_ok=True)
+        # The new database has no clip_embeddings table, so any previously
+        # published visual index no longer applies.
+        invalidate_visual_ready(data_dir)
         os.replace(temporary_database_path, database_path)
         os.replace(temporary_manifest_path, manifest_path)
         _write_ready_marker(ready_path, revision)
@@ -394,53 +397,16 @@ def _write_thumbnail(path: Path, image_bytes: bytes) -> None:
 def _download_shard(
     shard: DatasetShard, downloads_dir: Path, dataset_lock: DatasetLock
 ) -> Path:
-    destination = downloads_dir / shard.filename
-    if destination.is_file():
-        try:
-            _verify_file(destination, shard.size_bytes, shard.sha256)
-            LOGGER.info("Using verified download %s", destination.name)
-            return destination
-        except ValueError:
-            destination.unlink()
-
-    partial_path = destination.with_suffix(f"{destination.suffix}.partial")
-    partial_path.unlink(missing_ok=True)
     url = (
         f"https://huggingface.co/datasets/{dataset_lock.repo_id}/resolve/"
         f"{dataset_lock.revision}/{quote(shard.repo_path, safe='/')}?download=true"
     )
-    LOGGER.info("Downloading %s (%.1f MB)", shard.filename, shard.size_bytes / 1e6)
-    request = Request(url, headers={"User-Agent": "flickr8k-visualizer/0.1"})
-    try:
-        with (
-            urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
-            partial_path.open("wb") as output,
-        ):
-            while chunk := response.read(4 * 1024 * 1024):
-                output.write(chunk)
-        _verify_file(partial_path, shard.size_bytes, shard.sha256)
-        os.replace(partial_path, destination)
-    except Exception:
-        partial_path.unlink(missing_ok=True)
-        raise
-    return destination
-
-
-def _verify_file(path: Path, expected_size: int, expected_hash: str) -> None:
-    if not path.is_file():
-        raise ValueError(f"Dataset shard does not exist: {path}")
-    if path.stat().st_size != expected_size:
-        raise ValueError(
-            f"Unexpected size for {path.name}: {path.stat().st_size}; "
-            f"expected {expected_size}"
-        )
-
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(4 * 1024 * 1024):
-            digest.update(chunk)
-    if digest.hexdigest() != expected_hash:
-        raise ValueError(f"Checksum verification failed for {path.name}")
+    return download_verified_file(
+        url,
+        downloads_dir / shard.filename,
+        expected_size=shard.size_bytes,
+        expected_hash=shard.sha256,
+    )
 
 
 def _build_manifest(
@@ -535,7 +501,8 @@ def _validate_source_id(value: str) -> str | None:
 
 def _parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download and prepare the pinned Flickr8k dataset"
+        description="Download and prepare the pinned Flickr8k dataset "
+        "and its visual search index"
     )
     parser.add_argument(
         "--data-dir",
@@ -548,6 +515,11 @@ def _parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Rebuild an existing prepared dataset",
     )
+    parser.add_argument(
+        "--skip-visual",
+        action="store_true",
+        help="Prepare only the dataset; skip the visual search model and index",
+    )
     return parser.parse_args(arguments)
 
 
@@ -559,6 +531,16 @@ def main(arguments: Sequence[str] | None = None) -> None:
         "Prepared %s samples in %s",
         manifest["sample_count"],
         options.data_dir.expanduser().resolve(),
+    )
+    if options.skip_visual:
+        LOGGER.info(
+            "Skipped visual search preparation; run again without --skip-visual "
+            "to enable visual search"
+        )
+        return
+    visual_manifest = prepare_visual_search(options.data_dir, force=options.force)
+    LOGGER.info(
+        "Visual search index covers %s samples", visual_manifest["sample_count"]
     )
 
 

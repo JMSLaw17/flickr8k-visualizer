@@ -9,6 +9,8 @@ export interface SampleSummary {
   thumbnail_url: string
   caption: string | null
   matched_captions: string[]
+  /** CLIP cosine similarity to the rank query; null in unranked listings. */
+  similarity: number | null
 }
 
 export interface SampleDetail {
@@ -23,14 +25,19 @@ export interface SampleDetail {
   image_url: string
   thumbnail_url: string
   captions: string[]
+  /** Neighbors follow ranked order when a rank context is given. */
   previous_id: string | null
   next_id: string | null
+  /** CLIP cosine similarity to the rank context; null without one. */
+  similarity: number | null
 }
 
 export interface SamplePage {
   total: number
   limit: number
   offset: number
+  /** Whether rank requests can currently be served, refreshed per listing. */
+  visual_ranking_ready: boolean
   items: SampleSummary[]
 }
 
@@ -78,6 +85,8 @@ export function filterSearchParams(
 export interface ListSamplesParams extends SampleFilters {
   limit: number
   offset: number
+  /** Orders results by CLIP similarity; never changes which samples match. */
+  rank?: string
 }
 
 export interface DistributionBin {
@@ -158,23 +167,30 @@ function errorDetail(detail: unknown): string | null {
 }
 
 export function listSamples(
-  { limit, offset, ...filters }: ListSamplesParams,
+  { limit, offset, rank, ...filters }: ListSamplesParams,
   signal?: AbortSignal,
 ): Promise<SamplePage> {
   const query = filterSearchParams(
     filters,
     new URLSearchParams({ limit: String(limit), offset: String(offset) }),
   )
+  if (rank !== undefined) query.set('rank', rank)
 
   return request<SamplePage>(`/api/samples?${query}`, signal)
 }
 
+export interface SampleDetailParams extends SampleFilters {
+  /** Rank context: enables ranked-order neighbors and the sample's score. */
+  rank?: string
+}
+
 export function getSample(
   id: string,
-  filters: SampleFilters = {},
+  { rank, ...filters }: SampleDetailParams = {},
   signal?: AbortSignal,
 ): Promise<SampleDetail> {
   const query = filterSearchParams(filters)
+  if (rank !== undefined) query.set('rank', rank)
   const suffix = query.size > 0 ? `?${query}` : ''
   return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}${suffix}`, signal)
 }

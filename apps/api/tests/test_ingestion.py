@@ -11,6 +11,7 @@ import pyarrow.parquet as parquet
 import pytest
 from PIL import Image
 
+from flickr8k_visualizer import download as download_module
 from flickr8k_visualizer import ingestion as ingestion_module
 from flickr8k_visualizer.config import REPOSITORY_ROOT
 from flickr8k_visualizer.dataset_lock import (
@@ -27,6 +28,7 @@ from flickr8k_visualizer.ingestion import (
     read_image_metadata,
     stable_sample_id,
 )
+from flickr8k_visualizer.visual_search import visual_settings
 
 TRACKED_LOCK_PATH = REPOSITORY_ROOT / "datasets" / "flickr8k.lock.json"
 
@@ -194,6 +196,36 @@ def test_metadata_parsers_preserve_caption_positions_and_source_id() -> None:
     assert (metadata.width, metadata.height) == (13, 7)
     assert metadata.extension == "jpg"
     assert metadata.mime_type == "image/jpeg"
+
+
+def test_reingestion_invalidates_the_visual_ready_marker(tmp_path: Path) -> None:
+    shard_path = tmp_path / "train.parquet"
+    shard = _write_fixture_parquet(
+        shard_path,
+        [
+            {
+                "image": {"bytes": _jpeg_bytes(), "path": "1000000001_aaaaaaaaaa.jpg"},
+                **{f"caption_{index}": f"caption {index}" for index in range(5)},
+            }
+        ],
+    )
+    data_dir = tmp_path / "prepared"
+    visual_ready = visual_settings(data_dir).visual_ready_path
+    visual_ready.parent.mkdir(parents=True)
+    visual_ready.write_text("previously published identity\n", encoding="utf-8")
+
+    ingest_downloaded_shards(
+        data_dir,
+        {shard: shard_path},
+        repo_id="fixture/flickr8k",
+        revision="fixture-revision",
+        delete_parquet=False,
+    )
+
+    # The replaced database has no clip_embeddings, so the visual index must
+    # be unpublished until the visual stage rebuilds it.
+    assert not visual_ready.exists()
+    assert (data_dir / ".ready").is_file()
 
 
 def test_ingestion_stores_exif_transposed_dimensions(tmp_path: Path) -> None:
@@ -388,7 +420,7 @@ def test_download_uses_a_sixty_second_timeout(
         observed_timeout.append(timeout)
         return BytesIO(contents)
 
-    monkeypatch.setattr(ingestion_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(download_module, "urlopen", fake_urlopen)
     downloads_dir = tmp_path / "downloads"
     downloads_dir.mkdir()
 
@@ -398,3 +430,34 @@ def test_download_uses_a_sixty_second_timeout(
 
     assert observed_timeout == [60]
     assert downloaded_path.read_bytes() == contents
+
+
+def test_main_skips_the_visual_stage_on_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stages: list[str] = []
+
+    def fake_prepare_dataset(_data_dir: Path, *, force: bool) -> dict[str, object]:
+        stages.append(f"dataset(force={force})")
+        return {"sample_count": 0}
+
+    def fake_prepare_visual_search(
+        _data_dir: Path, *, force: bool
+    ) -> dict[str, object]:
+        stages.append(f"visual(force={force})")
+        return {"sample_count": 0}
+
+    monkeypatch.setattr(ingestion_module, "prepare_dataset", fake_prepare_dataset)
+    monkeypatch.setattr(
+        ingestion_module, "prepare_visual_search", fake_prepare_visual_search
+    )
+
+    ingestion_module.main(["--data-dir", str(tmp_path), "--skip-visual"])
+    assert stages == ["dataset(force=False)"]
+
+    ingestion_module.main(["--data-dir", str(tmp_path)])
+    assert stages == [
+        "dataset(force=False)",
+        "dataset(force=False)",
+        "visual(force=False)",
+    ]

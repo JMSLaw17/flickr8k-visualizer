@@ -42,7 +42,11 @@ function StrictModeDetailHarness() {
   const [isOpen, setIsOpen] = useState(true)
 
   return isOpen ? (
-    <DetailPanel sampleId={detail.id} onClose={() => setIsOpen(false)} />
+    <DetailPanel
+      sampleId={detail.id}
+      onClose={() => setIsOpen(false)}
+      onNavigate={() => undefined}
+    />
   ) : null
 }
 
@@ -78,12 +82,22 @@ it('ignores a stale detail failure after navigation aborts its request', async (
   vi.stubGlobal('fetch', fetchMock)
 
   const { rerender } = render(
-    <DetailPanel sampleId="sample-a" onClose={() => undefined} />,
+    <DetailPanel
+      sampleId="sample-a"
+      onClose={() => undefined}
+      onNavigate={() => undefined}
+    />,
   )
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
   const firstRequest = fetchMock.mock.calls[0]?.[1] as { signal: AbortSignal }
 
-  rerender(<DetailPanel sampleId="sample-b" onClose={() => undefined} />)
+  rerender(
+    <DetailPanel
+      sampleId="sample-b"
+      onClose={() => undefined}
+      onNavigate={() => undefined}
+    />,
+  )
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
   const secondRequest = fetchMock.mock.calls[1]?.[1] as { signal: AbortSignal }
@@ -233,6 +247,7 @@ it('does not refetch detail for equivalent inline filters after a parent rerende
       sampleId={detail.id}
       filters={{ split: 'train', q: 'green field' }}
       onClose={() => undefined}
+      onNavigate={() => undefined}
     />,
   )
 
@@ -248,6 +263,7 @@ it('does not refetch detail for equivalent inline filters after a parent rerende
       sampleId={detail.id}
       filters={{ q: 'green field', split: 'train' }}
       onClose={() => undefined}
+      onNavigate={() => undefined}
     />,
   )
 

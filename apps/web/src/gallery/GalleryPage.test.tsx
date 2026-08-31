@@ -39,7 +39,7 @@ it('focuses caption search with slash except from editable controls or an open d
     name: /a dog runs through a green field/i,
   })
   const galleryHeading = screen.getByRole('heading', { name: 'Dataset samples' })
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   expect(searchInput).toHaveAttribute('aria-keyshortcuts', '/')
   galleryHeading.focus()
 
@@ -264,7 +264,7 @@ it('submits and paginates a caption search while preserving other filters', asyn
   renderApp('/?split=test&term=dog&offset=24')
 
   await screen.findByRole('link', { name: /a dog runs through a green field/i })
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   await user.type(searchInput, `  ${query}  `)
   expect(fetchMock).toHaveBeenCalledTimes(1)
 
@@ -331,7 +331,7 @@ it('preserves an unsubmitted draft while paginating the committed search', async
   renderApp('/?q=dog')
 
   await screen.findByText('Matched captions')
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   await user.clear(searchInput)
   await user.type(searchInput, 'cat')
   expect(searchInput).toHaveValue('cat')
@@ -362,7 +362,7 @@ it('restores the committed query when another filter changes', async () => {
   renderApp('/?q=dog')
 
   await screen.findByText('Matched captions')
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   await user.clear(searchInput)
   await user.type(searchInput, 'cat')
 
@@ -389,13 +389,13 @@ it('clears an empty caption search without dropping the split filter', async () 
   expect(
     screen.getByText('No samples in the current filters have captions matching “missing”.'),
   ).toBeInTheDocument()
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('missing')
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue('missing')
   expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeInTheDocument()
 
   await user.click(screen.getByRole('button', { name: 'Clear search' }))
 
   await screen.findByRole('link', { name: /a dog runs through a green field/i })
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('')
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue('')
   expect(screen.getByLabelText('Dataset split')).toHaveValue('validation')
   expect(fetchMock).toHaveBeenLastCalledWith(
     '/api/samples?limit=24&offset=0&split=validation',
@@ -417,7 +417,7 @@ it('clears every filter from a combined empty caption search', async () => {
   await user.click(screen.getByRole('button', { name: 'Clear all filters' }))
 
   await screen.findByRole('link', { name: /a dog runs through a green field/i })
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('')
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue('')
   expect(screen.getByLabelText('Dataset split')).toHaveValue('all')
   expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0', {
     signal: expect.any(AbortSignal),
@@ -440,7 +440,7 @@ it('returns an out-of-range caption search to its first page', async () => {
   expect(await screen.findByText('Matched captions')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'No matching captions' })).not.toBeInTheDocument()
   expect(screen.getByLabelText('Dataset split')).toHaveValue('test')
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue('dog')
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue('dog')
   expect(fetchMock).toHaveBeenNthCalledWith(
     1,
     '/api/samples?limit=24&offset=9999&split=test&q=dog',
@@ -467,7 +467,7 @@ it('treats a blank search submission as clearing the query', async () => {
   renderApp('/?split=test&q=dog')
 
   await screen.findByText('Matched captions')
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   await user.clear(searchInput)
   await user.click(screen.getByRole('button', { name: 'Search' }))
 
@@ -496,7 +496,7 @@ it('retries a failed caption search with the committed query', async () => {
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('Couldn’t search captions')
   expect(alert).toHaveTextContent('Search temporarily unavailable')
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue(
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue(
     'green field',
   )
 
@@ -520,7 +520,7 @@ it('caps an overlong query loaded from the URL', async () => {
 
   expect(await screen.findByRole('heading', { name: 'No matching captions' })).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  expect(screen.getByRole('searchbox', { name: 'Search captions' })).toHaveValue(
+  expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue(
     normalizedQuery,
   )
   expect(fetchMock).toHaveBeenCalledWith(
@@ -544,7 +544,7 @@ it('normalizes and reruns a committed query when it is resubmitted', async () =>
   renderApp('/?q=dog')
 
   await screen.findByText('Matched captions')
-  const searchInput = screen.getByRole('searchbox', { name: 'Search captions' })
+  const searchInput = screen.getByRole('searchbox', { name: 'Filter by caption' })
   await user.clear(searchInput)
   await user.type(searchInput, ' dog ')
   await user.click(screen.getByRole('button', { name: 'Search' }))

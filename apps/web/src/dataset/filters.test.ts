@@ -7,6 +7,7 @@ import {
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
   parseOffset,
+  parseRank,
   parseSampleFilters,
 } from './filters'
 
@@ -49,6 +50,16 @@ describe('parseOffset', () => {
     expect(parseOffset(new URLSearchParams('offset=-3'))).toBe(0)
     expect(parseOffset(new URLSearchParams('offset=1.5'))).toBe(0)
     expect(parseOffset(new URLSearchParams())).toBe(0)
+  })
+})
+
+describe('parseRank', () => {
+  it('normalizes and caps rank without adding it to sample filters', () => {
+    const rank = `  ${'🐕'.repeat(MAX_CAPTION_QUERY_LENGTH + 1)}  `
+    const params = new URLSearchParams({ rank })
+
+    expect(parseRank(params)).toBe('🐕'.repeat(MAX_CAPTION_QUERY_LENGTH))
+    expect(parseSampleFilters(params)).toEqual({})
   })
 })
 

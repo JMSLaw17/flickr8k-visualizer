@@ -9,6 +9,7 @@ import {
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
   parseOffset,
+  parseRank,
   type FilterChip,
   useSampleFilters,
 } from '../dataset/filters'
@@ -29,6 +30,9 @@ function GalleryPage() {
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
   const [requestVersion, setRequestVersion] = useState(0)
+  // Optimistic until a listing reports otherwise; refreshed on every listing
+  // so finishing `npm run prepare:data` re-enables ranking without a reload.
+  const [rankingReady, setRankingReady] = useState(true)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const setSearchParamsRef = useRef(setSearchParams)
 
@@ -36,11 +40,21 @@ function GalleryPage() {
   const offset = parseOffset(searchParams)
   const drawerOpen = searchParams.has('sample')
   const committedQuery = filters.q ?? ''
+  // The rank description orders results by CLIP similarity; it is not a
+  // filter and never changes which samples match.
+  const committedRank = parseRank(searchParams)
+  const rankActive = committedRank !== ''
   const [draftQuery, setDraftQuery] = useState(committedQuery)
+  const [draftRank, setDraftRank] = useState(committedRank)
   const draftResetKey = JSON.stringify(
     FILTER_KEYS.filter((key) => key !== 'q').map((key) => filters[key] ?? null),
   )
-  const chips = filterChips(filters)
+  const chips: FilterChip[] = [
+    ...filterChips(filters),
+    ...(rankActive
+      ? [{ label: `Ranked by: “${committedRank}”`, keys: ['rank'] }]
+      : []),
+  ]
   const hasFilters = chips.length > 0 || filters.split !== undefined
   const hasOtherFilters =
     filters.split !== undefined || chips.some((chip) => !chip.keys.includes('q'))
@@ -52,6 +66,10 @@ function GalleryPage() {
   useEffect(() => {
     setDraftQuery(committedQuery)
   }, [committedQuery, draftResetKey])
+
+  useEffect(() => {
+    setDraftRank(committedRank)
+  }, [committedRank, draftResetKey])
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
@@ -81,8 +99,17 @@ function GalleryPage() {
     setError('')
     setPage(null)
 
-    listSamples({ limit: PAGE_SIZE, offset, ...filters }, controller.signal)
+    listSamples(
+      {
+        limit: PAGE_SIZE,
+        offset,
+        ...filters,
+        rank: rankActive ? committedRank : undefined,
+      },
+      controller.signal,
+    )
       .then((result) => {
+        setRankingReady(result.visual_ranking_ready)
         if (result.total > 0 && result.items.length === 0 && result.offset > 0) {
           setSearchParamsRef.current((previous) => {
             const next = new URLSearchParams(previous)
@@ -102,7 +129,7 @@ function GalleryPage() {
       })
 
     return () => controller.abort()
-  }, [filters, offset, requestVersion])
+  }, [committedRank, filters, offset, rankActive, requestVersion])
 
   const updateParams = (mutate: (params: URLSearchParams) => void) => {
     setSearchParams((previous) => {
@@ -127,11 +154,14 @@ function GalleryPage() {
     })
   }
 
-  const applySearch = (query: string) => {
+  const applySearch = (query: string, rank: string) => {
     const currentQuery = searchParams.get('q')
-    const queryIsCurrent = query ? currentQuery === query : currentQuery === null
+    const currentRank = searchParams.get('rank')
+    const searchIsCurrent =
+      (query ? currentQuery === query : currentQuery === null) &&
+      (rank ? currentRank === rank : currentRank === null)
 
-    if (queryIsCurrent && !searchParams.has('offset')) {
+    if (searchIsCurrent && !searchParams.has('offset')) {
       setRequestVersion((value) => value + 1)
       return
     }
@@ -140,13 +170,17 @@ function GalleryPage() {
       params.delete('offset')
       if (query) params.set('q', query)
       else params.delete('q')
+      if (rank) params.set('rank', rank)
+      else params.delete('rank')
     })
   }
 
   const submitSearch = () => {
     const query = normalizeCaptionQuery(draftQuery)
+    const rank = normalizeCaptionQuery(draftRank)
     setDraftQuery(query)
-    applySearch(query)
+    setDraftRank(rank)
+    applySearch(query, rank)
   }
 
   const removeChip = (chip: FilterChip) => {
@@ -167,17 +201,22 @@ function GalleryPage() {
     return { totalPages, currentPage, firstItem, lastItem }
   }, [page])
 
+  const rankSuffix = rankActive
+    ? ` · ranked by similarity to “${committedRank}”`
+    : ''
   const resultSummary =
     page && pageInfo && page.total > 0
       ? committedQuery
-        ? `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()} matching samples for “${committedQuery}”`
-        : `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()}`
+        ? `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()} matching samples for “${committedQuery}”${rankSuffix}`
+        : `Showing ${pageInfo.firstItem.toLocaleString()}–${pageInfo.lastItem.toLocaleString()} of ${page.total.toLocaleString()}${rankSuffix}`
       : ''
   const resultAnnouncement =
     status === 'loading'
-      ? committedQuery
-        ? `Searching captions for “${committedQuery}”`
-        : 'Loading samples'
+      ? rankActive
+        ? `Ranking images by similarity to “${committedRank}”`
+        : committedQuery
+          ? `Searching captions for “${committedQuery}”`
+          : 'Loading samples'
       : status === 'ready' && page?.total === 0
         ? committedQuery
           ? `No samples match the caption search for “${committedQuery}” and the current filters.`
@@ -195,35 +234,58 @@ function GalleryPage() {
           <p className="visually-hidden" aria-live="polite" aria-atomic="true">
             {resultAnnouncement}
           </p>
-          {resultSummary && (
-            <p className="results-summary" aria-hidden="true">
-              {resultSummary}
-            </p>
-          )}
+          {/* Always rendered so the toolbar keeps its height and the search
+              controls don't jump while results load. */}
+          <p className="results-summary" aria-hidden="true">
+            {resultSummary}
+          </p>
         </div>
 
         <div className="gallery-controls">
           <form
             className="search-control"
             role="search"
-            aria-label="Caption search"
+            aria-label="Sample search"
             onSubmit={(event) => {
               event.preventDefault()
               submitSearch()
             }}
           >
-            <label htmlFor="caption-search">Search captions</label>
             <div className="search-control__row">
-              <input
-                ref={searchInputRef}
-                id="caption-search"
-                type="search"
-                aria-keyshortcuts="/"
-                value={draftQuery}
-                onChange={(event) => setDraftQuery(event.target.value)}
-                placeholder="Enter an exact phrase"
-                maxLength={MAX_CAPTION_QUERY_LENGTH}
-              />
+              <div className="search-control__field">
+                <label htmlFor="caption-search">Filter by caption</label>
+                <input
+                  ref={searchInputRef}
+                  id="caption-search"
+                  type="search"
+                  aria-keyshortcuts="/"
+                  value={draftQuery}
+                  onChange={(event) => setDraftQuery(event.target.value)}
+                  placeholder="Enter an exact phrase"
+                  maxLength={MAX_CAPTION_QUERY_LENGTH}
+                />
+              </div>
+              <div className="search-control__field">
+                <label htmlFor="visual-rank">Rank by image content</label>
+                <input
+                  id="visual-rank"
+                  type="search"
+                  value={draftRank}
+                  onChange={(event) => setDraftRank(event.target.value)}
+                  disabled={!rankingReady}
+                  placeholder={
+                    rankingReady
+                      ? 'Describe image content'
+                      : 'Not prepared — run npm run prepare:data'
+                  }
+                  title={
+                    rankingReady
+                      ? undefined
+                      : 'Visual ranking is not prepared. Run npm run prepare:data to enable it.'
+                  }
+                  maxLength={MAX_CAPTION_QUERY_LENGTH}
+                />
+              </div>
               <button className="button button--primary" type="submit">
                 Search
               </button>
@@ -268,9 +330,19 @@ function GalleryPage() {
       {status === 'error' && (
         <div className="state-card" role="alert">
           <span className="state-card__mark">!</span>
-          <h3>{committedQuery ? 'Couldn’t search captions' : 'Couldn’t load the dataset'}</h3>
+          <h3>
+            {rankActive
+              ? 'Couldn’t rank images'
+              : committedQuery
+                ? 'Couldn’t search captions'
+                : 'Couldn’t load the dataset'}
+          </h3>
           <p>{error}</p>
-          <p className="state-card__hint">Make sure the local API is running, then try again.</p>
+          <p className="state-card__hint">
+            {rankActive && error.includes('Visual search is not prepared')
+              ? 'Run npm run prepare:data to build the visual ranking index, then try again.'
+              : 'Make sure the local API is running, then try again.'}
+          </p>
           <button
             className="button button--primary"
             type="button"
@@ -295,7 +367,7 @@ function GalleryPage() {
               <button
                 className="button button--secondary"
                 type="button"
-                onClick={() => applySearch('')}
+                onClick={() => applySearch('', committedRank)}
               >
                 Clear search
               </button>
@@ -325,11 +397,7 @@ function GalleryPage() {
         <>
           <div className="gallery-grid">
             {page.items.map((sample) => (
-              <SampleCard
-                key={sample.id}
-                sample={sample}
-                query={committedQuery}
-              />
+              <SampleCard key={sample.id} sample={sample} query={committedQuery} />
             ))}
           </div>
 

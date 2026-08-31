@@ -6,11 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "flickr8k-visualizer-api"
 version = "0.1.0"
 description = "Local API and data preparation tools for the Flickr8k visualizer"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
   "fastapi>=0.115,<1",
+  "numpy>=1.26,<3",
   "pillow>=11,<13",
   "pyarrow>=17,<22",
+  "torch>=2.2,<3",
+  "transformers>=4.48,<5",
   "uvicorn[standard]>=0.32,<1",
 ]
 
@@ -18,7 +21,7 @@ dependencies = [
 prepare-flickr8k = "flickr8k_visualizer.ingestion:main"
 
 [tool.setuptools.package-data]
-flickr8k_visualizer = ["flickr8k.lock.json"]
+flickr8k_visualizer = ["clip.lock.json", "flickr8k.lock.json"]
 
 [project.optional-dependencies]
 dev = [
@@ -26,6 +29,22 @@ dev = [
   "pytest>=8.3,<9",
   "ruff>=0.8,<1",
 ]
+
+# CLIP inference is CPU-only, so on Linux resolve torch from the CPU wheel
+# index instead of pulling the unused CUDA stack (~2.7 GB). macOS stays on
+# PyPI, whose default wheels are already CPU-only. The explicit named index
+# keeps every other package on PyPI. Older uv releases reject the lock file
+# this configuration produces, so the version floor is enforced below.
+[tool.uv]
+required-version = ">=0.5.11"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

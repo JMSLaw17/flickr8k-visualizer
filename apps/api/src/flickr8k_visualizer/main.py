@@ -1,6 +1,9 @@
 # No `from __future__ import annotations` here: FastAPI needs evaluated
 # annotations to expand the SampleFilters query model into query parameters.
+import logging
+from collections.abc import Callable
 from pathlib import PurePosixPath
+from threading import Lock
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -17,12 +20,13 @@ from .db import (
     get_sample,
     list_samples,
 )
+from .model_lock import load_model_lock
 from .models import (
     SPLIT_ORDER,
     DatasetOverview,
     Health,
+    RankedSampleFilters,
     SampleDetail,
-    SampleFilters,
     SampleList,
     SampleQuery,
     SampleSummary,
@@ -36,10 +40,27 @@ from .stats import (
     summarize_duplicates,
     top_caption_terms,
 )
+from .visual_search import (
+    TextEncoder,
+    VisualIndexUnavailableError,
+    rank_neighbors,
+    rank_samples,
+    visual_identity_matches_locks,
+)
+
+LOGGER = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    text_encoder_factory: Callable[[], TextEncoder] | None = None,
+) -> FastAPI:
     settings = settings or Settings.from_env()
+    text_encoder = _LazyTextEncoder(
+        text_encoder_factory or (lambda: _load_clip_text_encoder(settings))
+    )
+
     app = FastAPI(title="Flickr8k Visualizer API", version="0.1.0")
 
     if settings.cors_origins:
@@ -59,23 +80,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={"detail": "Dataset is not prepared. Run the ingestion command."},
         )
 
+    @app.exception_handler(VisualIndexUnavailableError)
+    async def visual_index_unavailable(
+        _request: Request, _error: VisualIndexUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Visual search is not prepared. "
+                "Run the data preparation command."
+            },
+        )
+
     @app.get("/api/health", response_model=Health)
     def health() -> Health:
-        return Health(status="ok")
+        return Health(status="ok", visual_ranking_ready=_visual_ranking_ready(settings))
 
     @app.get("/api/samples", response_model=SampleList)
     def samples(query: Annotated[SampleQuery, Query()]) -> SampleList:
         _require_prepared(settings)
-        total, records = list_samples(
-            settings.database_path,
-            limit=query.limit,
-            offset=query.offset,
-            filters=query,
-        )
+        if query.rank is not None:
+            _require_visual_ready(settings)
+            total, records = rank_samples(
+                settings.database_path,
+                _encode_rank(text_encoder, query.rank),
+                filters=query,
+                limit=query.limit,
+                offset=query.offset,
+            )
+        else:
+            total, records = list_samples(
+                settings.database_path,
+                limit=query.limit,
+                offset=query.offset,
+                filters=query,
+            )
         return SampleList(
             total=total,
             limit=query.limit,
             offset=query.offset,
+            visual_ranking_ready=_visual_ranking_ready(settings),
             items=[_to_summary(record) for record in records],
         )
 
@@ -118,12 +162,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/samples/{sample_id}", response_model=SampleDetail)
     def sample(
         sample_id: str,
-        filters: Annotated[SampleFilters, Query()],
+        filters: Annotated[RankedSampleFilters, Query()],
     ) -> SampleDetail:
         _require_prepared(settings)
         record = get_sample(settings.database_path, sample_id, filters=filters)
         if record is None:
             raise HTTPException(status_code=404, detail="Sample not found")
+        if filters.rank is not None:
+            # A rank context replaces stable-ID neighbors with ranked-order
+            # neighbors and reports the sample's own similarity.
+            _require_visual_ready(settings)
+            record = {
+                **record,
+                **rank_neighbors(
+                    settings.database_path,
+                    _encode_rank(text_encoder, filters.rank),
+                    filters=filters,
+                    sample_id=sample_id,
+                ),
+            }
         return _to_detail(record)
 
     app.mount(
@@ -147,6 +204,65 @@ def _require_prepared(settings: Settings) -> None:
         raise DatabaseUnavailableError("Dataset database is not ready")
 
 
+def _visual_ranking_ready(settings: Settings) -> bool:
+    return visual_identity_matches_locks(
+        settings.visual_manifest_path, settings.visual_ready_path
+    )
+
+
+def _require_visual_ready(settings: Settings) -> None:
+    if not _visual_ranking_ready(settings):
+        raise VisualIndexUnavailableError("Visual search index is not ready")
+
+
+def _encode_rank(text_encoder: "_LazyTextEncoder", rank: str) -> Any:
+    encoder = text_encoder.get(load_model_lock().revision)
+    try:
+        return encoder.encode_text(rank)
+    except Exception as error:
+        LOGGER.exception("Failed to encode the rank description")
+        # The encoder loaded, so rerunning data preparation would not help;
+        # report an inference failure rather than "not prepared".
+        raise HTTPException(
+            status_code=500,
+            detail="Visual ranking failed while encoding the description. "
+            "See the API log for details.",
+        ) from error
+
+
+class _LazyTextEncoder:
+    """Load the text encoder once, on the first visual search request."""
+
+    def __init__(self, factory: Callable[[], TextEncoder]) -> None:
+        self._factory = factory
+        self._lock = Lock()
+        self._encoder: TextEncoder | None = None
+        self._model_revision: str | None = None
+
+    def get(self, model_revision: str) -> TextEncoder:
+        with self._lock:
+            if self._encoder is None or self._model_revision != model_revision:
+                try:
+                    encoder = self._factory()
+                except Exception as error:
+                    LOGGER.exception("Failed to load the CLIP text encoder")
+                    # Missing, corrupt, or unloadable model files all mean the
+                    # visual index is unusable, not an internal server error.
+                    if isinstance(error, VisualIndexUnavailableError):
+                        raise
+                    raise VisualIndexUnavailableError(str(error)) from error
+                self._encoder = encoder
+                self._model_revision = model_revision
+            return self._encoder
+
+
+def _load_clip_text_encoder(settings: Settings) -> TextEncoder:
+    # Imported here so the heavy model stack loads only for visual search.
+    from .clip_encoder import ClipEncoder
+
+    return ClipEncoder(settings.model_dir, load_model_lock())
+
+
 def _to_summary(record: dict[str, Any]) -> SampleSummary:
     return SampleSummary(
         id=record["id"],
@@ -157,6 +273,7 @@ def _to_summary(record: dict[str, Any]) -> SampleSummary:
         thumbnail_url=_media_url(record["thumbnail_path"], "thumbnails"),
         caption=record["caption"],
         matched_captions=record["matched_captions"],
+        similarity=record.get("similarity"),
     )
 
 
@@ -175,6 +292,7 @@ def _to_detail(record: dict[str, Any]) -> SampleDetail:
         captions=record["captions"],
         previous_id=record["previous_id"],
         next_id=record["next_id"],
+        similarity=record.get("similarity"),
     )
 
 

@@ -19,13 +19,15 @@ the code.
 - `apps/web/src/shared`: UI and interaction code shared by features
 - `apps/web/src/test`: shared test setup and cross-feature integration tests
 - `datasets/flickr8k.lock.json`: tracked dataset revision and shard integrity metadata
+- `models/clip.lock.json`: tracked visual-search model revision and file integrity metadata
 - `data/flickr8k`: generated dataset artifacts; ignored by Git
 
 ## Commands
 
-Use the Node version in `.nvmrc` (Node 24), Python 3.11 or newer through `uv`,
-and `npm` from the repository root. Do not add nested lockfiles. Run commands
-from the repository root unless a command says otherwise.
+Use the Node version in `.nvmrc` (Node 24), a supported CPython 3.11–3.14
+environment through `uv`, and `npm` from the repository root. Do not add nested
+lockfiles. Run commands from the repository root unless a command says
+otherwise.
 
 ```bash
 nvm install           # Install the pinned Node version if needed
@@ -52,6 +54,7 @@ area; when a change spans multiple areas, combine their checks.
 | CSS or visual UI | `npm run lint:styles`, `npm run test:web`, `npm run build`, and a live browser check of the affected state |
 | API contract | Backend and frontend lint/tests, plus `npm run build` |
 | Ingestion, schema, IDs, hashes, or duplicate groups | `npm run lint:api`, `npm run test:api`, and focused synthetic-fixture coverage; run `npm run prepare:data` when the real ingestion path changes and local data is available |
+| Visual search model, embeddings, or ranking | `npm run lint:api` and `npm run test:api` with synthetic vectors only; when the real model or index path changes and local data is available, also run `npm run prepare:data` and `FLICKR8K_REAL_MODEL=1 npm run test:api -- apps/api/tests/test_visual_smoke.py` |
 | Cross-cutting configuration or dependencies | `npm run lint`, `npm test`, and `npm run build` |
 | Documentation only | Verify links, paths, commands, and symlinks directly; code tests are not required unless the documentation change also alters executable configuration |
 

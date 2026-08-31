@@ -17,6 +17,7 @@ const summary: SampleSummary = {
   thumbnail_url: '/media/thumbnails/123456789.jpg',
   caption: 'A dog runs through a field.',
   matched_captions: [],
+  similarity: null,
 }
 
 const detail: SampleDetail = {
@@ -79,6 +80,36 @@ describe('dataset API', () => {
     )
   })
 
+  it('serializes visual ranking after filters on the samples endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          total: 1,
+          limit: 24,
+          offset: 0,
+          items: [{ ...summary, similarity: 0.284 }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await listSamples({
+      limit: 24,
+      offset: 0,
+      split: 'test',
+      q: 'snow',
+      term: 'dog',
+      rank: 'a dog running through snow',
+    })
+
+    expect(result.items[0].similarity).toBe(0.284)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/samples?limit=24&offset=0&split=test&q=snow&term=dog&rank=a+dog+running+through+snow',
+      { signal: undefined },
+    )
+  })
+
   it('requests the dataset overview', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ sample_count: 0 }), {
@@ -114,10 +145,11 @@ describe('dataset API', () => {
       max_width: 900,
       min_height: 300,
       max_height: 700,
+      rank: 'a dog jumping',
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/samples/folder%2Fimage%201.jpg?split=test&q=green+field+%26+dog&term=dog&min_words=9&max_words=10&min_width=400&max_width=900&min_height=300&max_height=700&min_ratio=1.25&max_ratio=1.5',
+      '/api/samples/folder%2Fimage%201.jpg?split=test&q=green+field+%26+dog&term=dog&min_words=9&max_words=10&min_width=400&max_width=900&min_height=300&max_height=700&min_ratio=1.25&max_ratio=1.5&rank=a+dog+jumping',
       { signal: undefined },
     )
     expect(result.previous_id).toBe('sample-0')

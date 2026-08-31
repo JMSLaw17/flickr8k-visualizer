@@ -11,6 +11,11 @@ import {
 export const SPLITS: readonly DatasetSplit[] = ['train', 'validation', 'test']
 export const MAX_CAPTION_QUERY_LENGTH = 200
 
+/** Ranking description from the `rank` URL parameter; empty means ID order. */
+export function parseRank(params: URLSearchParams): string {
+  return normalizeCaptionQuery(params.get('rank') ?? '')
+}
+
 type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'q' | 'term'>
 
 export function parseSampleFilters(params: URLSearchParams): SampleFilters {

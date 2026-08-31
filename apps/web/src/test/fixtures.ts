@@ -9,6 +9,7 @@ export const summary: SampleSummary = {
   thumbnail_url: '/media/thumbnails/123456789.jpg',
   caption: 'A dog runs through a green field.',
   matched_captions: [],
+  similarity: null,
 }
 
 export const detail: SampleDetail = {
@@ -39,5 +40,5 @@ export function pageResponse(
   items: SampleSummary[],
   { total = items.length, offset = 0 }: { total?: number; offset?: number } = {},
 ): Response {
-  return jsonResponse({ total, limit: 24, offset, items })
+  return jsonResponse({ total, limit: 24, offset, visual_ranking_ready: true, items })
 }

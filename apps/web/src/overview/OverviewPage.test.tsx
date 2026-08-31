@@ -83,6 +83,7 @@ const memberDetail: SampleDetail = {
   captions: ['Two dogs on a beach.'],
   previous_id: null,
   next_id: null,
+  similarity: null,
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

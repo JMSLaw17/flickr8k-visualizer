@@ -9,8 +9,14 @@ After preparation, the running application does not contact Hugging Face or any 
 - **Browse**: exact caption search across all five captions with matching text
   highlighted, a paginated thumbnail gallery with split filtering, and a detail
   drawer showing every caption and the stored image metadata. Gallery state and
-  open samples have direct, shareable URLs. Results stay in ascending sample-ID
-  order, and previous/next navigation follows the complete filtered result set.
+  open samples have direct, shareable URLs. Without visual ranking, results stay
+  in ascending sample-ID order and previous/next navigation follows the complete
+  filtered result set.
+- **Visual ranking**: rank every image in the current filter scope by similarity
+  to a natural-language description ("a dog running through snow"). Ranking is
+  composable with literal caption search, exact-term search, and every other
+  filter, runs locally with the pinned CLIP model, and shows each result's raw
+  cosine similarity score.
 - **Overview**: sample counts by split, the caption-length distribution, common
   caption terms, image width/height distributions, and the aspect-ratio
   distribution. Every chart value links to the gallery filtered to the matching
@@ -20,16 +26,30 @@ After preparation, the running application does not contact Hugging Face or any 
   number of affected images, cross-split duplicate groups highlighted
   separately, and one-click access to each duplicate's detail view.
 
-Keyboard shortcuts: press `/` to focus caption search, use the Left and Right
-Arrow keys to move between samples in the detail drawer, and press Escape to
-close it.
+For example, [`/?q=snow&rank=a+dog+jumping&split=train`](http://localhost:5173/?q=snow&rank=a+dog+jumping&split=train)
+filters the training split to captions containing “snow,” then ranks those same
+samples by visual similarity to “a dog jumping.”
+
+Keyboard shortcuts: press `/` to focus caption search, press Escape to close the
+detail drawer, and use the Left and Right Arrow keys to move between samples in
+the detail drawer.
 
 ## Prerequisites
 
-- Python 3.11 or newer
-- [uv](https://docs.astral.sh/uv/)
+- CPython 3.11–3.14 on Apple silicon macOS 14+, Windows x86-64, or Linux
+  x86-64/ARM64 with glibc 2.28+ (the platforms covered by the locked PyTorch
+  wheels)
+- [uv](https://docs.astral.sh/uv/) 0.5.11 or newer (older releases cannot read
+  the lock file; the requirement is enforced via `tool.uv.required-version`)
+- On Windows, Git symlink support — enable Developer Mode (or run Git as a user
+  with the symlink privilege) and clone with `git config core.symlinks true`.
+  The tracked `datasets/flickr8k.lock.json` and `models/clip.lock.json` are
+  symlinks and check out as plain text files otherwise
 - Node.js 20.19+, 22.13+, or 24+
-- About 3 GB of free disk space while preparing the dataset
+- About 4 GB of free disk space while preparing the dataset and the visual
+  ranking model, plus about 1 GB for the installed Python dependencies (CLIP
+  inference is CPU-only, and the lock file pins PyTorch's CPU build on Linux,
+  so no CUDA packages are downloaded)
 
 The repository pins Node 24 in `.nvmrc`. With `nvm`, activate it before installing dependencies:
 
@@ -47,13 +67,28 @@ npm install
 uv sync --project apps/api --extra dev
 ```
 
-Download and prepare Flickr8k. This downloads the four Parquet shards from the pinned dataset revision, verifies their checksums, extracts the original images, creates thumbnails, and builds the SQLite catalog. The downloaded Parquet files are removed only after ingestion succeeds.
+Download and prepare Flickr8k. This runs two stages:
+
+1. **Dataset**: downloads the four Parquet shards from the pinned dataset
+   revision, verifies their checksums, extracts the original images, creates
+   thumbnails, and builds the SQLite catalog. The downloaded Parquet files are
+   removed only after ingestion succeeds.
+2. **Visual ranking**: downloads the pinned CLIP model (about 608 MB) into
+   `data/flickr8k/visual-search/model/`, verifies each file's checksum, and
+   embeds every image into a local index (a few minutes on CPU).
 
 ```bash
 npm run prepare:data
 ```
 
-Prepared data is stored under `data/flickr8k/` and is intentionally ignored by Git. The command is idempotent: if the pinned revision is already prepared, it exits without downloading it again.
+Prepared data is stored under `data/flickr8k/` and is intentionally ignored by Git. The command is idempotent: each stage that is already prepared is skipped without downloading anything again. If the visual stage fails (for example, the model download is interrupted), browsing still works, requests with visual ranking return a clear 503, and rerunning the command retries only the visual stage.
+
+To try browsing first without downloading the model, prepare only the dataset;
+visual ranking returns a 503 until the full command runs:
+
+```bash
+npm run prepare:data -- --skip-visual
+```
 
 Start both development servers:
 
@@ -77,10 +112,18 @@ npm run build
 data/flickr8k/
 ├── images/                 # Exact image bytes extracted from Parquet
 ├── thumbnails/             # Locally generated gallery thumbnails
-├── flickr8k.sqlite3        # Samples, captions, dimensions, splits, paths, hashes
+├── flickr8k.sqlite3        # Samples, captions, dimensions, splits, paths, hashes,
+│                           # and the clip_embeddings visual index
 ├── manifest.json           # Source revision, shard checksums, and ingestion summary
-└── .ready                  # Written last when the database and manifest are publishable
+├── .ready                  # Written last when the database and manifest are publishable
+└── visual-search/
+    ├── model/              # Pinned CLIP model files, verified by checksum
+    ├── manifest.json       # Model identity, dataset revision, and embedding summary
+    └── .ready              # Written last when the visual index is publishable
 ```
+
+On a fresh preparation with `--skip-visual`, the `visual-search/` directory and
+the `clip_embeddings` table are absent until the visual stage runs.
 
 The dataset repository, full commit revision, shard paths, byte sizes, SHA-256
 checksums, and expected row counts are pinned in the tracked
@@ -106,6 +149,55 @@ JOIN samples USING (content_sha256)
 ORDER BY duplicate_groups.content_sha256, samples.id;
 ```
 
+## Visual ranking
+
+Visual ranking first applies the current caption query, exact-term, split, and
+numeric filters. It then encodes the ranking description with
+[`openai/clip-vit-base-patch32`](https://huggingface.co/openai/clip-vit-base-patch32)
+and orders the filtered set by exact cosine similarity against the image
+embeddings stored during preparation — a brute-force dot product over
+L2-normalized 512-dimensional vectors, with no approximate index. Each query
+encodes only its text; images are embedded once, when the index is built.
+Ranking never changes which samples match. Ties are broken by ascending sample
+ID, so a given description always returns the same order.
+
+The model is pinned in the tracked
+[`models/clip.lock.json`](models/clip.lock.json): repository, full commit
+revision, the exact files to download (only the safetensors weight plus the
+configuration and tokenizer files, not the other framework formats), each
+file's byte size and SHA-256 checksum, the embedding dimension, and a
+preprocessing version. Preparation downloads these files into
+`data/flickr8k/visual-search/model/` and rejects anything that does not match
+the lock. After preparation, queries run entirely locally.
+
+Embeddings are stored per sample in the `clip_embeddings` SQLite table as
+little-endian float32 blobs. Images are decoded with EXIF orientation applied
+and converted to RGB before encoding, matching how the app displays them.
+
+**Interpreting scores**: results show the raw CLIP cosine similarity (for
+example `0.284`). Higher values rank as more similar; the score is not a
+percentage or a confidence. Scores are only comparable within a single query —
+a vague query can score its top result higher than a precise query scores its
+median. Query text is tokenized within CLIP's 77-token context
+window; typical queries under the 200-character input limit fit comfortably,
+and longer token sequences are truncated. CLIP has known limitations — it struggles with
+counting and fine-grained recognition, it was trained primarily on English
+text, and it reflects the social biases of its web training data (see the
+[CLIP model card](https://github.com/openai/CLIP/blob/main/model-card.md)).
+Treat visual ranking as a research aid, not ground truth.
+
+The detail drawer follows the active ordering: with a `rank` parameter,
+previous/next step through the ranked result set and the drawer shows the
+sample's own similarity score; without one, they follow stable-ID order. Both
+traverse the complete filtered result set, not just the visible page.
+
+The default test suite never loads or downloads the real model. After
+preparation, an optional real-model smoke test is available:
+
+```bash
+FLICKR8K_REAL_MODEL=1 npm run test:api -- apps/api/tests/test_visual_smoke.py
+```
+
 ## Configuration
 
 Set `FLICKR8K_DATA_DIR` to use a data directory other than `data/flickr8k`:
@@ -126,3 +218,4 @@ npm run prepare:data -- --force
 - `apps/web`: React and TypeScript frontend
 - `apps/api`: FastAPI application, ingestion command, and backend tests
 - `datasets`: tracked dataset revisions and shard integrity metadata
+- `models`: tracked model revisions and file integrity metadata
