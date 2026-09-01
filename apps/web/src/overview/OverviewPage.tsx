@@ -42,19 +42,16 @@ function OverviewPage() {
   return (
     <section className="overview-section" aria-labelledby="overview-title">
       <div className="toolbar">
-        <div>
-          <p className="eyebrow">Understand</p>
-          <h2 id="overview-title" tabIndex={-1}>
-            Dataset overview
-          </h2>
-          {status === 'ready' && overview && (
-            <p className="results-summary">
-              {overview.sample_count.toLocaleString()} samples ·{' '}
-              {overview.caption_count.toLocaleString()} captions · chart values open
-              the matching gallery page
-            </p>
-          )}
-        </div>
+        <h2 id="overview-title" tabIndex={-1} className="visually-hidden">
+          Dataset overview
+        </h2>
+        {status === 'ready' && overview && (
+          <p className="results-summary">
+            {overview.sample_count.toLocaleString()} samples ·{' '}
+            {overview.caption_count.toLocaleString()} captions · chart values open
+            the matching gallery page
+          </p>
+        )}
       </div>
 
       {status === 'loading' && <OverviewSkeleton />}

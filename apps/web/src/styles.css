@@ -64,7 +64,7 @@ select:focus-visible {
   align-items: flex-end;
   justify-content: space-between;
   gap: 40px;
-  padding: 72px 0 42px;
+  padding: 28px 0 20px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -73,7 +73,7 @@ select:focus-visible {
 }
 
 .eyebrow {
-  margin: 0 0 11px;
+  margin: 0 0 6px;
   color: var(--accent);
   font-size: 0.72rem;
   font-weight: 750;
@@ -90,12 +90,12 @@ p {
 
 h1 {
   max-width: 750px;
-  margin-bottom: 18px;
+  margin-bottom: 8px;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(3rem, 7vw, 6.6rem);
+  font-size: clamp(1.9rem, 3.5vw, 2.8rem);
   font-weight: 400;
-  letter-spacing: -0.065em;
-  line-height: 0.91;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
 }
 
 .header-description {
@@ -107,23 +107,19 @@ h1 {
 }
 
 .gallery-section {
-  padding: 46px 0 54px;
+  padding: 14px 0 54px;
 }
 
 .toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 28px;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 22px;
 }
 
 .gallery-controls {
   display: flex;
-  flex: 1 1 540px;
+  flex-wrap: wrap;
   align-items: end;
-  justify-content: flex-end;
   gap: 12px;
   min-width: 0;
 }
@@ -166,7 +162,7 @@ h1 {
 
 .toolbar h2 {
   margin-bottom: 6px;
-  font-size: clamp(1.65rem, 3vw, 2.2rem);
+  font-size: clamp(1.35rem, 2.5vw, 1.7rem);
   letter-spacing: -0.035em;
 }
 
@@ -176,6 +172,10 @@ h1 {
   color: var(--muted);
   font-size: 0.9rem;
   overflow-wrap: anywhere;
+}
+
+.results-summary--grid {
+  margin-bottom: 8px;
 }
 
 .filter-control {
@@ -856,7 +856,7 @@ footer {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: -8px 0 24px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -902,7 +902,7 @@ footer {
 }
 
 .overview-section {
-  padding: 46px 0 54px;
+  padding: 14px 0 54px;
 }
 
 .overview-grid {
@@ -1285,7 +1285,8 @@ a.histogram__hit:hover .histogram__bar {
 
   .app-header {
     display: grid;
-    padding-top: 50px;
+    gap: 18px;
+    padding-top: 24px;
   }
 
   .header-side {
@@ -1307,9 +1308,6 @@ a.histogram__hit:hover .histogram__bar {
   .gallery-controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    flex-basis: 100%;
-    width: 100%;
-    justify-content: stretch;
   }
 
   .search-control {
@@ -1338,11 +1336,7 @@ a.histogram__hit:hover .histogram__bar {
   }
 
   .app-header {
-    padding-top: 36px;
-  }
-
-  .toolbar {
-    display: grid;
+    padding-top: 18px;
   }
 
   .search-control__row {

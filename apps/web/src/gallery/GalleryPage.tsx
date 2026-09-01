@@ -226,20 +226,12 @@ function GalleryPage() {
   return (
     <section className="gallery-section" aria-labelledby="gallery-title">
       <div className="toolbar">
-        <div>
-          <p className="eyebrow">Browse</p>
-          <h2 id="gallery-title" tabIndex={-1}>
-            Dataset samples
-          </h2>
-          <p className="visually-hidden" aria-live="polite" aria-atomic="true">
-            {resultAnnouncement}
-          </p>
-          {/* Always rendered so the toolbar keeps its height and the search
-              controls don't jump while results load. */}
-          <p className="results-summary" aria-hidden="true">
-            {resultSummary}
-          </p>
-        </div>
+        <h2 id="gallery-title" tabIndex={-1} className="visually-hidden">
+          Dataset samples
+        </h2>
+        <p className="visually-hidden" aria-live="polite" aria-atomic="true">
+          {resultAnnouncement}
+        </p>
 
         <div className="gallery-controls">
           <form
@@ -306,24 +298,30 @@ function GalleryPage() {
             </select>
           </label>
         </div>
+
+        {chips.length > 0 && (
+          <ul className="filter-chips" aria-label="Active filters">
+            {chips.map((chip) => (
+              <li className="filter-chip" key={chip.keys.join('-')}>
+                <span>{chip.label}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove filter: ${chip.label}`}
+                  onClick={() => removeChip(chip)}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {chips.length > 0 && (
-        <ul className="filter-chips" aria-label="Active filters">
-          {chips.map((chip) => (
-            <li className="filter-chip" key={chip.keys.join('-')}>
-              <span>{chip.label}</span>
-              <button
-                type="button"
-                aria-label={`Remove filter: ${chip.label}`}
-                onClick={() => removeChip(chip)}
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Always rendered so the layout keeps its height and the grid
+          doesn't jump while results load. */}
+      <p className="results-summary results-summary--grid" aria-hidden="true">
+        {resultSummary}
+      </p>
 
       {status === 'loading' && <GallerySkeleton />}
 
