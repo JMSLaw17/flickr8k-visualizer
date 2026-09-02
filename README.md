@@ -6,14 +6,15 @@ After preparation, the running application does not contact Hugging Face or any 
 
 ## Features
 
-- **Browse**: exact caption search across all five captions with matching text
-  highlighted, a paginated thumbnail gallery with split filtering, and a detail
-  drawer showing every caption and the stored image metadata. Each card shows
-  the split, the source filename, and a duplicate marker when the image is
-  byte-identical to another sample. Gallery state and
-  open samples have direct, shareable URLs. Without visual ranking, results stay
-  in ascending sample-ID order and previous/next navigation follows the complete
-  filtered result set.
+- **Browse**: exact caption search across all five captions, with matching
+  text highlighted on the cards and in the detail drawer, a paginated
+  thumbnail gallery with split filtering, and a detail drawer showing every
+  caption and the stored image metadata. Each card shows the split, the source
+  filename, and a duplicate marker when the image is byte-identical to another
+  sample. Every active filter, including ranges chosen from Overview charts,
+  appears as a removable chip. Gallery state and open samples have direct,
+  shareable URLs. Without visual ranking, results stay in ascending sample-ID
+  order and previous/next navigation follows the complete filtered result set.
 - **Visual ranking**: rank every image in the current filter scope by similarity
   to a natural-language description ("a dog running through snow"). Ranking is
   composable with literal caption search, exact-term search, and every other
@@ -25,12 +26,15 @@ After preparation, the running application does not contact Hugging Face or any 
   test image, find similar images, and narrow to the training split.
 - **Overview**: sample counts by split, the most common exact image sizes with
   a summary of the remaining long tail, the aspect-ratio distribution, the
-  caption-length distribution, and common caption terms. The overview has the
-  same caption search and split controls as the gallery and accepts the same
-  filters, and the navigation keeps them when switching pages, so any subset
-  can be compared against the whole dataset. Each split, listed common size,
-  ratio, caption-length, and term value links to the matching gallery; the
-  remaining dimension long tail is summarized without listing every rare size.
+  caption-length distribution with a count of very short captions, and common
+  caption terms. The overview has the same caption search and split controls
+  as the gallery and accepts the same filters, and the navigation keeps filters
+  and ranking when switching pages, so any subset can be compared against the
+  whole dataset. The split chart ignores the selected split on purpose, so a
+  caption search can be compared across train, validation, and test. Each
+  split, listed common size, ratio, caption-length, and term value links to
+  the matching gallery; the remaining dimension long tail is summarized
+  without listing every rare size.
 - **Data quality**: exact-duplicate groups detected by content SHA-256, the
   number of affected images, cross-split duplicate groups highlighted
   separately, and one-click access to each duplicate's detail view. This
@@ -50,9 +54,9 @@ needs an all-pairs similarity pass at preparation time and a threshold checked
 against real near-duplicates, since CLIP scores different photos of the same
 subject highly too. Similar-image ranking is the on-demand version of that audit.
 
-Keyboard shortcuts: press `/` to focus caption search, press Escape to close the
-detail drawer, and use the Left and Right Arrow keys to move between samples in
-the detail drawer.
+Keyboard shortcuts: press `/` to focus caption search on either page, press
+Escape to close the detail drawer, and use the Left and Right Arrow keys to
+move between samples in the detail drawer.
 
 ## Prerequisites
 
@@ -229,6 +233,10 @@ FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run prepare:data
 FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run dev
 ```
 
+`FLICKR8K_DATABASE_PATH` and `FLICKR8K_MANIFEST_PATH` override the two files
+individually, and `FLICKR8K_CORS_ORIGINS` is a comma-separated list of allowed
+frontend origins (default `http://localhost:5173`).
+
 To replace an existing prepared dataset explicitly, run:
 
 ```bash
@@ -237,7 +245,9 @@ npm run prepare:data -- --force
 
 ## Monorepo structure
 
-- `apps/web`: React and TypeScript frontend
+- `apps/web`: React and TypeScript frontend. `src` is organized by feature:
+  `gallery`, `overview`, and `detail` pages, `dataset` for the API client and
+  filter model, and `shared` for controls used by more than one page
 - `apps/api`: FastAPI application, ingestion command, and backend tests
 - `datasets`: tracked dataset revisions and shard integrity metadata
 - `models`: tracked model revisions and file integrity metadata
