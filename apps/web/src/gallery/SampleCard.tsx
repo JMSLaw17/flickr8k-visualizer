@@ -2,7 +2,7 @@ import type { SampleSummary } from '../dataset/api'
 import { formatDimensions, formatSimilarity, formatSplit } from '../dataset/formatters'
 import SampleLink from '../detail/SampleLink'
 import DatasetImage from '../shared/DatasetImage'
-import HighlightedText from './HighlightedText'
+import HighlightedText from '../shared/HighlightedText'
 
 interface SampleCardProps {
   sample: SampleSummary

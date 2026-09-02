@@ -305,3 +305,33 @@ it('balances the native dialog lifecycle under Strict Mode', async () => {
   expect(requestSignals[1].aborted).toBe(true)
   expect(document.body.style.overflow).toBe('')
 })
+
+it('highlights the committed caption search in every caption', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(detail)))
+
+  render(
+    <DetailPanel
+      sampleId={detail.id}
+      filters={{ q: 'dog' }}
+      onClose={() => undefined}
+      onNavigate={() => undefined}
+    />,
+  )
+
+  await screen.findByRole('heading', { name: detail.source_id })
+  const marks = screen.getAllByText('dog', { selector: 'mark' })
+  // Four of the five fixture captions mention a dog; the fifth says "animal".
+  expect(marks).toHaveLength(4)
+  expect(marks[0].closest('.caption-list')).not.toBeNull()
+})
+
+it('renders captions plainly without a caption search', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(detail)))
+
+  render(
+    <DetailPanel sampleId={detail.id} onClose={() => undefined} onNavigate={() => undefined} />,
+  )
+
+  await screen.findByRole('heading', { name: detail.source_id })
+  expect(document.querySelector('.caption-list mark')).toBeNull()
+})

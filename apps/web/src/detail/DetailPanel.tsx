@@ -15,6 +15,7 @@ import {
   getErrorMessage,
 } from '../dataset/formatters'
 import DatasetImage from '../shared/DatasetImage'
+import HighlightedText from '../shared/HighlightedText'
 import { isEditableTarget } from '../shared/interaction'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -265,7 +266,9 @@ function DetailPanel({
                 {readySample.captions.length > 0 ? (
                   <ul className="caption-list">
                     {readySample.captions.map((caption, index) => (
-                      <li key={`${caption}-${index}`}>{caption}</li>
+                      <li key={`${caption}-${index}`}>
+                        <HighlightedText text={caption} query={filters.q ?? ''} />
+                      </li>
                     ))}
                   </ul>
                 ) : (
