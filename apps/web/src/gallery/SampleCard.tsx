@@ -18,9 +18,12 @@ function SampleCard({ sample, query = '' }: SampleCardProps) {
     <article className="sample-card">
       <div className="sample-card__media">
         <DatasetImage className="sample-card__image" src={sample.thumbnail_url} alt="" />
-        <span className={`split-badge split-badge--${sample.split}`}>
-          {formatSplit(sample.split)}
-        </span>
+        <div className="sample-card__badges">
+          <span className={`split-badge split-badge--${sample.split}`}>
+            {formatSplit(sample.split)}
+          </span>
+          {sample.duplicate && <span className="duplicate-badge">Duplicate</span>}
+        </div>
       </div>
       <div className="sample-card__body">
         {matchedCaptions.length > 0 ? (
@@ -43,7 +46,10 @@ function SampleCard({ sample, query = '' }: SampleCardProps) {
           </p>
         )}
         <span className="sample-card__meta">
-          {formatDimensions(sample.width, sample.height)}
+          <span>{formatDimensions(sample.width, sample.height)}</span>
+          <span className="sample-card__id" title={sample.source_id}>
+            {sample.source_id}
+          </span>
         </span>
       </div>
       <SampleLink

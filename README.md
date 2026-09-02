@@ -8,7 +8,9 @@ After preparation, the running application does not contact Hugging Face or any 
 
 - **Browse**: exact caption search across all five captions with matching text
   highlighted, a paginated thumbnail gallery with split filtering, and a detail
-  drawer showing every caption and the stored image metadata. Gallery state and
+  drawer showing every caption and the stored image metadata. Each card shows
+  the split, the source filename, and a duplicate marker when the image is
+  byte-identical to another sample. Gallery state and
   open samples have direct, shareable URLs. Without visual ranking, results stay
   in ascending sample-ID order and previous/next navigation follows the complete
   filtered result set.

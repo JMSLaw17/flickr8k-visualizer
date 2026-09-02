@@ -9,6 +9,7 @@ export const summary: SampleSummary = {
   thumbnail_url: '/media/thumbnails/123456789.jpg',
   caption: 'A dog runs through a green field.',
   matched_captions: [],
+  duplicate: false,
   similarity: null,
 }
 

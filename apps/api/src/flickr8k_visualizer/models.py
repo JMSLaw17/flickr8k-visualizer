@@ -18,6 +18,8 @@ class SampleSummary(BaseModel):
     thumbnail_url: str
     caption: str | None
     matched_captions: list[str]
+    # Byte-identical to at least one other sample in the dataset.
+    duplicate: bool
     # CLIP cosine similarity to the rank query; null in unranked listings.
     similarity: float | None = None
 

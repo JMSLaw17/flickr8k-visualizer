@@ -271,6 +271,7 @@ def _to_summary(record: dict[str, Any]) -> SampleSummary:
         thumbnail_url=_media_url(record["thumbnail_path"], "thumbnails"),
         caption=record["caption"],
         matched_captions=record["matched_captions"],
+        duplicate=bool(record["duplicate"]),
         similarity=record.get("similarity"),
     )
 

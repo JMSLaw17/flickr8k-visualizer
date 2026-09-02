@@ -9,6 +9,8 @@ export interface SampleSummary {
   thumbnail_url: string
   caption: string | null
   matched_captions: string[]
+  /** Byte-identical to at least one other sample in the dataset. */
+  duplicate: boolean
   /** CLIP cosine similarity to the rank query; null in unranked listings. */
   similarity: number | null
 }

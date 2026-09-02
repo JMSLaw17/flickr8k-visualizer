@@ -74,6 +74,7 @@ it('paginates, resets a changed filter, and preserves gallery state after detail
     split: 'validation',
     caption: 'A sample on the second page.',
     matched_captions: [],
+    duplicate: false,
   }
   const secondPageDetail: SampleDetail = {
     ...detail,

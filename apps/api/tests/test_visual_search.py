@@ -398,6 +398,7 @@ def test_rank_returns_ordinary_captions_without_matches(
         "thumbnail_url": "/media/thumbnails/sample-a.webp",
         "caption": "First caption of sample a.",
         "matched_captions": [],
+        "duplicate": False,
         "similarity": pytest.approx(1.0),
     }
 

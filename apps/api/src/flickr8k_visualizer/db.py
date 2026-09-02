@@ -152,7 +152,12 @@ SELECT id, source_id, split, width, height, thumbnail_path,
            WHERE sample_id = samples.id
            ORDER BY position
            LIMIT 1
-       ) AS caption
+       ) AS caption,
+       EXISTS (
+           SELECT 1
+           FROM duplicate_groups
+           WHERE duplicate_groups.content_sha256 = samples.content_sha256
+       ) AS duplicate
 FROM samples
 """
 

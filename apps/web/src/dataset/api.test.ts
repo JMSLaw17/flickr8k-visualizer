@@ -17,6 +17,7 @@ const summary: SampleSummary = {
   thumbnail_url: '/media/thumbnails/123456789.jpg',
   caption: 'A dog runs through a field.',
   matched_captions: [],
+  duplicate: false,
   similarity: null,
 }
 

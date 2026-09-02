@@ -166,6 +166,7 @@ def test_filters_samples_and_orders_captions(client: TestClient) -> None:
         "thumbnail_url": "/media/thumbnails/first%20image.jpg",
         "caption": "The first caption.",
         "matched_captions": [],
+        "duplicate": False,
         "similarity": None,
     }
 
@@ -710,6 +711,17 @@ def overview_client(tmp_path: Path) -> TestClient:
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
+
+
+def test_lists_samples_flag_exact_duplicates(overview_client: TestClient) -> None:
+    response = overview_client.get("/api/samples")
+
+    assert response.status_code == 200
+    assert [(item["id"], item["duplicate"]) for item in response.json()["items"]] == [
+        ("dup-a1", True),
+        ("dup-a2", True),
+        ("solo-b", False),
+    ]
 
 
 def test_overview_reports_distributions_and_duplicates(
