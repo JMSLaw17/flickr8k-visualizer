@@ -856,19 +856,23 @@ footer {
   justify-items: end;
 }
 
+/* One grouped control with two views; the selected segment reads as
+   selected, not as an action, so the accent fill stays with the Search button. */
 .site-nav {
-  display: flex;
-  gap: 7px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
 }
 
 .site-nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 38px;
+  min-height: 32px;
   padding: 0 16px;
-  border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--paper);
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 700;
@@ -876,19 +880,18 @@ footer {
 }
 
 .site-nav a:hover {
-  border-color: #aaa398;
+  background: #efeae1;
   color: var(--ink);
 }
 
 .site-nav a.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .site-nav a:focus-visible {
   outline: 3px solid rgb(86 53 151 / 24%);
-  outline-offset: 3px;
+  outline-offset: 1px;
 }
 
 .filter-chips {
