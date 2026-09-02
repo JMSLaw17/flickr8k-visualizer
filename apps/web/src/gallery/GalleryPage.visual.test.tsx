@@ -330,7 +330,7 @@ it('explains how to prepare visual ranking when a ranked request fails', async (
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('Couldn’t rank images')
   expect(alert).toHaveTextContent(
-    'Run npm run prepare:data to build the visual ranking index, then try again.',
+    'Run npm run prepare:data to prepare the local data, then try again.',
   )
   expect(alert).not.toHaveTextContent('Make sure the local API is running')
 })

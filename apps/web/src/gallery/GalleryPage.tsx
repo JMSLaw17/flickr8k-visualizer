@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { listSamples, type SamplePage } from '../dataset/api'
+import { isNotPreparedError, listSamples, type SamplePage } from '../dataset/api'
 import GallerySkeleton from './GallerySkeleton'
 import SampleCard from './SampleCard'
 import { filterChips, parseOffset, parseOrdering, type FilterChip } from '../dataset/filters'
-import { getErrorMessage } from '../dataset/formatters'
+import { formatRecoveryHint, getErrorMessage } from '../dataset/formatters'
 import { isSampleDrawerOpen } from '../detail/sampleRoute'
 import EmptyResults from '../shared/EmptyResults'
 import FilterChips from '../shared/FilterChips'
@@ -32,12 +32,13 @@ function GalleryPage() {
   const [page, setPage] = useState<SamplePage | null>(null)
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
+  const [unprepared, setUnprepared] = useState(false)
   // Optimistic until a listing reports otherwise; refreshed on every listing
   // so finishing `npm run prepare:data` re-enables ranking without a reload.
   const [rankingReady, setRankingReady] = useState(true)
   const setSearchParamsRef = useRef(setSearchParams)
 
-  const offset = parseOffset(searchParams)
+  const offset = parseOffset(searchParams, PAGE_SIZE)
   const committedQuery = filters.q ?? ''
   // An ordering, by a description or by a reference image, sorts results by
   // CLIP similarity; it is not a filter and never changes which samples match.
@@ -98,6 +99,7 @@ function GalleryPage() {
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
         setError(getErrorMessage(reason))
+        setUnprepared(isNotPreparedError(reason))
         setStatus('error')
       })
 
@@ -184,11 +186,7 @@ function GalleryPage() {
                 : 'Couldn’t load the dataset'}
           </h3>
           <p>{error}</p>
-          <p className="state-card__hint">
-            {orderingActive && error.includes('Visual search is not prepared')
-              ? 'Run npm run prepare:data to build the visual ranking index, then try again.'
-              : 'Make sure the local API is running, then try again.'}
-          </p>
+          <p className="state-card__hint">{formatRecoveryHint(unprepared)}</p>
           <button
             className="button button--primary"
             type="button"

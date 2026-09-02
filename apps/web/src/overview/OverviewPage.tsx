@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 
 import {
   getOverview,
+  isNotPreparedError,
   type DatasetOverview,
   type DimensionSummary,
   type DuplicateSummary,
@@ -18,6 +19,7 @@ import {
 } from '../dataset/filters'
 import {
   formatDimensions,
+  formatRecoveryHint,
   formatSplit,
   getErrorMessage,
 } from '../dataset/formatters'
@@ -50,6 +52,7 @@ function OverviewPage() {
   const [overview, setOverview] = useState<DatasetOverview | null>(null)
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
+  const [unprepared, setUnprepared] = useState(false)
   const ordering = parseOrdering(searchParams)
   const chips = filterChips(filters)
   const scopeSuffix = Object.keys(filters).length > 0 ? ' in scope' : ''
@@ -85,6 +88,7 @@ function OverviewPage() {
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
         setError(getErrorMessage(reason))
+        setUnprepared(isNotPreparedError(reason))
         setStatus('error')
       })
 
@@ -130,7 +134,7 @@ function OverviewPage() {
           <span className="state-card__mark">!</span>
           <h3>Couldn’t load the overview</h3>
           <p>{error}</p>
-          <p className="state-card__hint">Make sure the local API is running, then try again.</p>
+          <p className="state-card__hint">{formatRecoveryHint(unprepared)}</p>
           <button className="button button--primary" type="button" onClick={refresh}>
             Try again
           </button>

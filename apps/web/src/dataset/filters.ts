@@ -92,9 +92,11 @@ export function normalizeCaptionQuery(query: string): string {
   return [...query.trim()].slice(0, MAX_CAPTION_QUERY_LENGTH).join('')
 }
 
-export function parseOffset(params: URLSearchParams): number {
+/** Page offset from the URL, snapped down to a page boundary. */
+export function parseOffset(params: URLSearchParams, pageSize: number): number {
   const value = Number(params.get('offset'))
-  return Number.isInteger(value) && value > 0 ? value : 0
+  if (!Number.isInteger(value) || value <= 0) return 0
+  return Math.floor(value / pageSize) * pageSize
 }
 
 /** Gallery path with the given filters and optional ordering. */

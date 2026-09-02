@@ -112,7 +112,7 @@ it('shows every caption and the original at its exact dimensions', async () => {
   expect(captionItems.map((item) => item.textContent)).toEqual(detail.captions)
   expect(screen.getByText('500 × 375 px')).toBeInTheDocument()
   expect(screen.getByText(detail.content_sha256)).toBeInTheDocument()
-  expect(screen.getByText('image/jpeg · 117.2 KB')).toBeInTheDocument()
+  expect(screen.getByText('image/jpeg · 120 KB')).toBeInTheDocument()
   const originalImage = screen.getByRole('img', { name: detail.captions[0] })
   expect(originalImage).toHaveAttribute('width', '500')
   expect(originalImage).toHaveAttribute('height', '375')

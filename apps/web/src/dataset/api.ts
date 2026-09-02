@@ -152,6 +152,21 @@ export interface DatasetOverview {
   duplicates: DuplicateSummary
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** The API answers 503 only while local data is not prepared yet. */
+export function isNotPreparedError(reason: unknown): boolean {
+  return reason instanceof ApiError && reason.status === 503
+}
+
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { signal })
 
@@ -166,7 +181,7 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
       // Keep the status-based fallback.
     }
 
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
 
   return response.json() as Promise<T>

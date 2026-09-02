@@ -432,10 +432,11 @@ it('returns an out-of-range caption search to its first page', async () => {
   }
   const fetchMock = vi
     .fn()
-    .mockResolvedValueOnce(pageResponse([], { total: 1, offset: 9999 }))
+    .mockResolvedValueOnce(pageResponse([], { total: 1, offset: 9984 }))
     .mockResolvedValueOnce(pageResponse([searchSummary], { total: 1 }))
   vi.stubGlobal('fetch', fetchMock)
 
+  // A hand-edited offset snaps down to the page boundary before the request.
   renderApp('/?split=test&q=dog&offset=9999')
 
   expect(await screen.findByText('Matched captions')).toBeInTheDocument()
@@ -444,7 +445,7 @@ it('returns an out-of-range caption search to its first page', async () => {
   expect(screen.getByRole('searchbox', { name: 'Filter by caption' })).toHaveValue('dog')
   expect(fetchMock).toHaveBeenNthCalledWith(
     1,
-    '/api/samples?limit=24&offset=9999&split=test&q=dog',
+    '/api/samples?limit=24&offset=9984&split=test&q=dog',
     { signal: expect.any(AbortSignal) },
   )
   expect(fetchMock).toHaveBeenLastCalledWith(
@@ -555,4 +556,20 @@ it('normalizes and reruns a committed query when it is resubmitted', async () =>
   expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0&q=dog', {
     signal: expect.any(AbortSignal),
   })
+})
+
+it('tells the user to prepare the data when the API reports it is not prepared', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      jsonResponse({ detail: 'Dataset is not prepared. Run the ingestion command.' }, 503),
+    ),
+  )
+
+  renderApp()
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Dataset is not prepared. Run the ingestion command.')
+  expect(alert).toHaveTextContent('Run npm run prepare:data to prepare the local data')
+  expect(alert).not.toHaveTextContent('Make sure the local API is running')
 })

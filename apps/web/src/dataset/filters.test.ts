@@ -48,10 +48,11 @@ describe('parseSampleFilters', () => {
 
 describe('parseOffset', () => {
   it('accepts positive integers and rejects everything else', () => {
-    expect(parseOffset(new URLSearchParams('offset=24'))).toBe(24)
-    expect(parseOffset(new URLSearchParams('offset=-3'))).toBe(0)
-    expect(parseOffset(new URLSearchParams('offset=1.5'))).toBe(0)
-    expect(parseOffset(new URLSearchParams())).toBe(0)
+    expect(parseOffset(new URLSearchParams('offset=24'), 24)).toBe(24)
+    expect(parseOffset(new URLSearchParams('offset=30'), 24)).toBe(24)
+    expect(parseOffset(new URLSearchParams('offset=-3'), 24)).toBe(0)
+    expect(parseOffset(new URLSearchParams('offset=1.5'), 24)).toBe(0)
+    expect(parseOffset(new URLSearchParams(), 24)).toBe(0)
   })
 })
 
