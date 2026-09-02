@@ -4,6 +4,7 @@ import {
   binFilters,
   filterChips,
   galleryPath,
+  parseOrdering,
   withoutFilters,
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
@@ -71,7 +72,7 @@ describe('galleryPath', () => {
     expect(galleryPath({ min_ratio: 1.25, q: 'green field', term: 'dog', max_ratio: 1.5 })).toBe(
       '/?q=green+field&term=dog&min_ratio=1.25&max_ratio=1.5',
     )
-    expect(galleryPath({ split: 'test', q: 'snow' }, 'a dog')).toBe(
+    expect(galleryPath({ split: 'test', q: 'snow' }, { rank: 'a dog' })).toBe(
       '/?split=test&q=snow&rank=a+dog',
     )
   })
@@ -133,5 +134,24 @@ describe('filterChips', () => {
 
   it('describes a split on its own', () => {
     expect(filterChips({ split: 'test' })).toEqual([{ label: 'Split: Test', keys: ['split'] }])
+  })
+})
+
+describe('parseOrdering', () => {
+  it('reads one ordering, preferring a reference image over a description', () => {
+    expect(parseOrdering(new URLSearchParams('rank=a+dog'))).toEqual({ rank: 'a dog' })
+    expect(parseOrdering(new URLSearchParams('similar_to=anchor'))).toEqual({
+      similar_to: 'anchor',
+    })
+    expect(parseOrdering(new URLSearchParams('rank=a+dog&similar_to=anchor'))).toEqual({
+      similar_to: 'anchor',
+    })
+    expect(parseOrdering(new URLSearchParams(''))).toEqual({})
+  })
+
+  it('appends a reference-image ordering to gallery paths', () => {
+    expect(galleryPath({ split: 'train' }, { similar_to: 'anchor' })).toBe(
+      '/?split=train&similar_to=anchor',
+    )
   })
 })

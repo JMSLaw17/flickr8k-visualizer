@@ -6,7 +6,7 @@ import {
   type SampleDetail,
   type SampleDetailParams,
 } from '../dataset/api'
-import { parseRank, parseSampleFilters } from '../dataset/filters'
+import { parseOrdering, parseSampleFilters, withOrdering } from '../dataset/filters'
 import {
   formatDimensions,
   formatFileDescription,
@@ -26,6 +26,8 @@ interface DetailPanelProps {
   filters?: SampleDetailParams
   onClose: () => void
   onNavigate: (id: string) => void
+  /** Rank the current scope by similarity to this sample's image. */
+  onFindSimilar?: () => void
 }
 
 const EMPTY_FILTERS: SampleDetailParams = {}
@@ -35,6 +37,7 @@ function DetailPanel({
   filters = EMPTY_FILTERS,
   onClose,
   onNavigate,
+  onFindSimilar,
 }: DetailPanelProps) {
   const [sample, setSample] = useState<SampleDetail | null>(null)
   const [status, setStatus] = useState<LoadState>('loading')
@@ -47,10 +50,8 @@ function DetailPanel({
   const nextButtonRef = useRef<HTMLButtonElement>(null)
   const pendingNavigationFocus = useRef<NavigationDirection | null>(null)
   const readySample = status === 'ready' && sample?.id === sampleId ? sample : null
-  // Key requests by filter and rank values, not the caller's object identity.
-  const filtersQuery = filterSearchParams(filters)
-  if (filters.rank) filtersQuery.set('rank', filters.rank)
-  const filtersKey = filtersQuery.toString()
+  // Key requests by filter and ordering values, not the caller's object identity.
+  const filtersKey = withOrdering(filterSearchParams(filters), filters).toString()
 
   const closeDetail = () => {
     if (dialogRef.current?.open) dialogRef.current.close()
@@ -76,9 +77,10 @@ function DetailPanel({
     setError('')
 
     const params = new URLSearchParams(filtersKey)
-    const requestFilters: SampleDetailParams = parseSampleFilters(params)
-    const rank = parseRank(params)
-    if (rank) requestFilters.rank = rank
+    const requestFilters: SampleDetailParams = {
+      ...parseSampleFilters(params),
+      ...parseOrdering(params),
+    }
     getSample(sampleId, requestFilters, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return
@@ -230,7 +232,10 @@ function DetailPanel({
                 <h2 id="detail-title">{readySample.source_id}</h2>
                 {typeof readySample.similarity === 'number' && (
                   <p className="detail-similarity">
-                    CLIP cosine similarity: {formatSimilarity(readySample.similarity)}
+                    {filters.similar_to
+                      ? 'CLIP cosine similarity to the reference image: '
+                      : 'CLIP cosine similarity: '}
+                    {formatSimilarity(readySample.similarity)}
                   </p>
                 )}
               </div>
@@ -256,6 +261,15 @@ function DetailPanel({
                 >
                   Next →
                 </button>
+                {onFindSimilar && (
+                  <button
+                    className="button button--secondary button--wide"
+                    type="button"
+                    onClick={onFindSimilar}
+                  >
+                    Find similar images
+                  </button>
+                )}
               </nav>
 
               <section className="caption-section" aria-labelledby="captions-title">

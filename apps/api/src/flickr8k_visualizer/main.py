@@ -44,6 +44,7 @@ from .stats import (
 from .visual_search import (
     TextEncoder,
     VisualIndexUnavailableError,
+    load_embedding,
     rank_neighbors,
     rank_samples,
     visual_identity_matches_locks,
@@ -100,11 +101,11 @@ def create_app(
     @app.get("/api/samples", response_model=SampleList)
     def samples(query: Annotated[SampleQuery, Query()]) -> SampleList:
         _require_prepared(settings)
-        if query.rank is not None:
+        if query.ordered:
             _require_visual_ready(settings)
             total, records = rank_samples(
                 settings.database_path,
-                _encode_rank(text_encoder, query.rank),
+                _query_vector(text_encoder, settings, query),
                 filters=query,
                 limit=query.limit,
                 offset=query.offset,
@@ -166,15 +167,15 @@ def create_app(
         record = get_sample(settings.database_path, sample_id, filters=filters)
         if record is None:
             raise HTTPException(status_code=404, detail="Sample not found")
-        if filters.rank is not None:
-            # A rank context replaces stable-ID neighbors with ranked-order
-            # neighbors and reports the sample's own similarity.
+        if filters.ordered:
+            # An ordering context replaces stable-ID neighbors with
+            # ranked-order neighbors and reports the sample's own similarity.
             _require_visual_ready(settings)
             record = {
                 **record,
                 **rank_neighbors(
                     settings.database_path,
-                    _encode_rank(text_encoder, filters.rank),
+                    _query_vector(text_encoder, settings, filters),
                     filters=filters,
                     sample_id=sample_id,
                 ),
@@ -211,6 +212,22 @@ def _visual_ranking_ready(settings: Settings) -> bool:
 def _require_visual_ready(settings: Settings) -> None:
     if not _visual_ranking_ready(settings):
         raise VisualIndexUnavailableError("Visual search index is not ready")
+
+
+def _query_vector(
+    text_encoder: "_LazyTextEncoder",
+    settings: Settings,
+    filters: RankedSampleFilters,
+) -> Any:
+    """The vector to rank by: a sample's stored embedding or an encoded description."""
+    if filters.similar_to is not None:
+        vector = load_embedding(settings.database_path, filters.similar_to)
+        if vector is None:
+            raise HTTPException(status_code=404, detail="Reference sample not found")
+        return vector
+    if filters.rank is not None:
+        return _encode_rank(text_encoder, filters.rank)
+    raise HTTPException(status_code=422, detail="An ordering is required")
 
 
 def _encode_rank(text_encoder: "_LazyTextEncoder", rank: str) -> Any:

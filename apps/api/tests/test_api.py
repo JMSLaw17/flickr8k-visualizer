@@ -413,6 +413,7 @@ def test_openapi_describes_split_and_non_nullable_sample_metadata(
         "term",
         "q",
         "rank",
+        "similar_to",
         "min_words",
         "max_words",
         "min_width",

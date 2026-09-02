@@ -125,6 +125,29 @@ describe('dataset API', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/overview', { signal: undefined })
   })
 
+  it('serializes a reference-image ordering for listings and details', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ total: 0, limit: 24, offset: 0, items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listSamples({ limit: 24, offset: 0, split: 'train', similar_to: 'anchor' })
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/samples?limit=24&offset=0&split=train&similar_to=anchor',
+      { signal: undefined },
+    )
+
+    await getSample('other', { similar_to: 'anchor' })
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/samples/other?similar_to=anchor', {
+      signal: undefined,
+    })
+  })
+
   it('scopes the overview by the gallery filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ sample_count: 0 }), {

@@ -1,5 +1,6 @@
 const DRAWER_STATE_KEY = 'sampleDrawerOpened'
 const DRAWER_OPENER_KEY = 'sampleDrawerOpener'
+const DRAWER_EXIT_KEY = 'sampleDrawerExited'
 
 export function appOpenedDrawerState(
   state: unknown,
@@ -14,6 +15,18 @@ export function appOpenedDrawerState(
 
 export function isAppOpenedDrawer(state: unknown): boolean {
   return isStateRecord(state) && state[DRAWER_STATE_KEY] === true
+}
+
+/**
+ * State for a navigation that leaves the drawer for new results. Focus then
+ * belongs on the page heading, not back on the card that opened the drawer.
+ */
+export function drawerExitState(): Record<string, unknown> {
+  return { [DRAWER_EXIT_KEY]: true }
+}
+
+export function isDrawerExit(state: unknown): boolean {
+  return isStateRecord(state) && state[DRAWER_EXIT_KEY] === true
 }
 
 export function drawerOpenerId(state: unknown): string | null {

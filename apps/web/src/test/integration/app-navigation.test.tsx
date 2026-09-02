@@ -583,3 +583,115 @@ it('keeps the filter scope when switching pages and drops page-specific state', 
     { signal: expect.any(AbortSignal) },
   )
 })
+
+it('carries a reference-image ordering across the page navigation', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(pageResponse([summary]))))
+
+  renderApp('/?split=train&similar_to=anchor&offset=24')
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
+
+  expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
+    'href',
+    '/overview?split=train&similar_to=anchor',
+  )
+  expect(screen.getByRole('link', { name: 'Browse' })).toHaveAttribute(
+    'href',
+    '/?split=train&similar_to=anchor',
+  )
+})
+
+it('opens similar images from the drawer, keeping the scope and focusing the gallery', async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input).startsWith(`/api/samples/${summary.id}`)
+        ? jsonResponse(detail)
+        : pageResponse([summary]),
+    ),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?split=train&q=snow')
+  await user.click(
+    await screen.findByRole('link', { name: /a dog runs through a green field/i }),
+  )
+  await screen.findByRole('heading', { name: detail.source_id })
+
+  await user.click(screen.getByRole('button', { name: 'Find similar images' }))
+
+  await waitFor(() => {
+    expect(currentLocation()).toBe(`/?split=train&q=snow&similar_to=${summary.id}`)
+  })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    `/api/samples?limit=24&offset=0&split=train&q=snow&similar_to=${summary.id}`,
+    { signal: expect.any(AbortSignal) },
+  )
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Dataset samples' })).toHaveFocus()
+  })
+})
+
+it('ranks the whole dataset when finding images similar to a duplicate member', async () => {
+  const overview: DatasetOverview = {
+    sample_count: 1,
+    caption_count: 5,
+    split_counts: { train: 1, validation: 0, test: 0 },
+    caption_lengths: [],
+    top_terms: [],
+    dimensions: { top: [], other_sample_count: 0, other_size_count: 0 },
+    aspect_ratios: [],
+    duplicates: {
+      group_count: 1,
+      affected_sample_count: 2,
+      cross_split_group_count: 0,
+      groups: [
+        {
+          content_sha256: detail.content_sha256,
+          sample_count: 2,
+          splits: ['train'],
+          cross_split: false,
+          samples: [
+            {
+              id: summary.id,
+              source_id: summary.source_id,
+              split: summary.split,
+              thumbnail_url: summary.thumbnail_url,
+            },
+          ],
+        },
+      ],
+    },
+  }
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.startsWith('/api/overview')) return Promise.resolve(jsonResponse(overview))
+    if (url.startsWith(`/api/samples/${summary.id}`)) {
+      return Promise.resolve(jsonResponse(detail))
+    }
+    return Promise.resolve(pageResponse([summary]))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/overview?q=snow')
+  await user.click(
+    await screen.findByRole('link', { name: `View details for ${summary.source_id}` }),
+  )
+  await screen.findByRole('heading', { name: detail.source_id })
+  expect(currentLocation()).toBe(`/overview?q=snow&sample=${summary.id}&scope=dataset`)
+
+  await user.click(screen.getByRole('button', { name: 'Find similar images' }))
+
+  // The duplicate drawer is unscoped, so its similar images span every split.
+  await waitFor(() => {
+    expect(currentLocation()).toBe(`/?similar_to=${summary.id}`)
+  })
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    `/api/samples?limit=24&offset=0&similar_to=${summary.id}`,
+    { signal: expect.any(AbortSignal) },
+  )
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Dataset samples' })).toHaveFocus()
+  })
+})

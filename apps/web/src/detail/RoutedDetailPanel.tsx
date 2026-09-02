@@ -1,13 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { parseRank, useSampleFilters } from '../dataset/filters'
+import { galleryPath, parseOrdering, useSampleFilters } from '../dataset/filters'
 import { getRouteMetadata } from '../routes'
 import DetailPanel from './DetailPanel'
 import {
   clearDrawerParams,
+  drawerExitState,
   drawerOpenerId,
   isAppOpenedDrawer,
+  isDrawerExit,
   isUnscopedDrawer,
 } from './sampleRoute'
 
@@ -17,9 +19,9 @@ function RoutedDetailPanel() {
   const [searchParams, setSearchParams] = useSearchParams()
   const sampleId = searchParams.get('sample') || null
   const filters = useSampleFilters(searchParams)
-  // With a rank context, the drawer navigates in ranked order and shows the
-  // sample's similarity; without one it follows stable-ID order.
-  const rank = parseRank(searchParams)
+  // With an ordering context, the drawer navigates in ranked order and shows
+  // the sample's similarity; without one it follows stable-ID order.
+  const ordering = parseOrdering(searchParams)
   // Links such as duplicate members open the drawer over the whole dataset.
   const unscoped = isUnscopedDrawer(searchParams)
   const previousDrawer = useRef({
@@ -40,7 +42,8 @@ function RoutedDetailPanel() {
       sampleId ||
       !previous.sampleId ||
       previous.pathname !== location.pathname ||
-      !isAppOpenedDrawer(previous.state)
+      !isAppOpenedDrawer(previous.state) ||
+      isDrawerExit(location.state)
     ) {
       return
     }
@@ -69,7 +72,11 @@ function RoutedDetailPanel() {
       { replace: true, preventScrollReset: true },
     )
 
-    const headingId = getRouteMetadata(location.pathname)?.headingId
+    focusHeading(location.pathname)
+  }
+
+  const focusHeading = (pathname: string) => {
+    const headingId = getRouteMetadata(pathname)?.headingId
     if (!headingId) return
     requestAnimationFrame(() => {
       document.getElementById(headingId)?.focus({ preventScroll: true })
@@ -96,12 +103,23 @@ function RoutedDetailPanel() {
     )
   }
 
+  // Opens Browse ranked by this sample's image within the drawer's scope. The
+  // listing URL has no drawer parameters, so the drawer closes with it, and
+  // focus moves to the gallery heading as it does when the drawer is removed.
+  const findSimilar = () => {
+    navigate(galleryPath(unscoped ? {} : filters, { similar_to: sampleId }), {
+      state: drawerExitState(),
+    })
+    focusHeading('/')
+  }
+
   return (
     <DetailPanel
       sampleId={sampleId}
-      filters={unscoped ? {} : rank ? { ...filters, rank } : filters}
+      filters={unscoped ? {} : { ...filters, ...ordering }}
       onClose={close}
       onNavigate={showSample}
+      onFindSimilar={findSimilar}
     />
   )
 }

@@ -17,6 +17,40 @@ export function parseRank(params: URLSearchParams): string {
   return normalizeCaptionQuery(params.get('rank') ?? '')
 }
 
+/** Reference sample ID from the `similar_to` URL parameter; empty means none. */
+export function parseSimilarTo(params: URLSearchParams): string {
+  return (params.get('similar_to') ?? '').trim()
+}
+
+/**
+ * How results are ordered: by similarity to a description, by similarity to
+ * a reference image, or by ID when empty. Ordering never changes which
+ * samples match, only their order.
+ */
+export interface Ordering {
+  rank?: string
+  similar_to?: string
+}
+
+export const ORDERING_KEYS = ['rank', 'similar_to'] as const
+
+export function parseOrdering(params: URLSearchParams): Ordering {
+  const similarTo = parseSimilarTo(params)
+  const rank = parseRank(params)
+  // There is one ordering at a time; a reference image wins over a description.
+  if (similarTo) return { similar_to: similarTo }
+  return rank ? { rank } : {}
+}
+
+/** The given search params with the ordering set on top. */
+export function withOrdering(query: URLSearchParams, ordering: Ordering): URLSearchParams {
+  for (const key of ORDERING_KEYS) {
+    const value = ordering[key]
+    if (value) query.set(key, value)
+  }
+  return query
+}
+
 type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'q' | 'term'>
 
 export function parseSampleFilters(params: URLSearchParams): SampleFilters {
@@ -63,11 +97,9 @@ export function parseOffset(params: URLSearchParams): number {
   return Number.isInteger(value) && value > 0 ? value : 0
 }
 
-/** Gallery path with the given filters and optional visual ranking. */
-export function galleryPath(filters: SampleFilters, rank = ''): string {
-  const query = filterSearchParams(filters)
-  if (rank) query.set('rank', rank)
-  const encoded = query.toString()
+/** Gallery path with the given filters and optional ordering. */
+export function galleryPath(filters: SampleFilters, ordering: Ordering = {}): string {
+  const encoded = withOrdering(filterSearchParams(filters), ordering).toString()
   return encoded ? `/?${encoded}` : '/'
 }
 

@@ -18,7 +18,11 @@ After preparation, the running application does not contact Hugging Face or any 
   to a natural-language description ("a dog running through snow"). Ranking is
   composable with literal caption search, exact-term search, and every other
   filter, runs locally with the pinned CLIP model, and shows each result's raw
-  cosine similarity score.
+  cosine similarity score. From any sample's detail drawer, **Find similar
+  images** ranks the same scope by similarity to that image instead, using
+  its stored embedding, with the reference image itself first at 1.000 when
+  it is in scope, so near-duplicate and leakage checks are one click: open a
+  test image, find similar images, and narrow to the training split.
 - **Overview**: sample counts by split, the most common exact image sizes with
   a summary of the remaining long tail, the aspect-ratio distribution, the
   caption-length distribution, and common caption terms. The overview has the
@@ -34,7 +38,17 @@ After preparation, the running application does not contact Hugging Face or any 
 
 For example, [`/?q=snow&rank=a+dog+jumping&split=train`](http://localhost:5173/?q=snow&rank=a+dog+jumping&split=train)
 filters the training split to captions containing “snow,” then ranks those same
-samples by visual similarity to “a dog jumping.”
+samples by visual similarity to “a dog jumping.” Replacing the description with
+a sample ID, as in [`/?similar_to=2851198725_37b6027625&split=train`](http://localhost:5173/?similar_to=2851198725_37b6027625&split=train),
+ranks the training split by similarity to that image, which is how to check
+whether a test image has near-duplicates in training. `rank` and `similar_to`
+are two forms of one ordering: the API rejects a request with both, and a URL
+carrying both is read as `similar_to`.
+
+Dataset-wide near-duplicate detection is deliberately left as future work: it
+needs an all-pairs similarity pass at preparation time and a threshold checked
+against real near-duplicates, since CLIP scores different photos of the same
+subject highly too. Similar-image ranking is the on-demand version of that audit.
 
 Keyboard shortcuts: press `/` to focus caption search, press Escape to close the
 detail drawer, and use the Left and Right Arrow keys to move between samples in
@@ -158,14 +172,15 @@ ORDER BY duplicate_groups.content_sha256, samples.id;
 ## Visual ranking
 
 Visual ranking first applies the current caption query, exact-term, split, and
-numeric filters. It then encodes the ranking description with
-[`openai/clip-vit-base-patch32`](https://huggingface.co/openai/clip-vit-base-patch32)
-and orders the filtered set by exact cosine similarity against the image
-embeddings stored during preparation — a brute-force dot product over
-L2-normalized 512-dimensional vectors, with no approximate index. Each query
-encodes only its text; images are embedded once, when the index is built.
-Ranking never changes which samples match. Ties are broken by ascending sample
-ID, so a given description always returns the same order.
+numeric filters. It then orders the filtered set by exact cosine similarity
+between a query vector and the image embeddings stored during preparation — a
+brute-force dot product over L2-normalized 512-dimensional vectors, with no
+approximate index. The query vector is either a ranking description encoded
+with [`openai/clip-vit-base-patch32`](https://huggingface.co/openai/clip-vit-base-patch32)
+(`rank`) or the stored embedding of a reference sample (`similar_to`), which
+needs no model inference at all. Images are embedded once, when the index is
+built. Ranking never changes which samples match. Ties are broken by ascending
+sample ID, so a given query always returns the same order.
 
 The model is pinned in the tracked
 [`models/clip.lock.json`](models/clip.lock.json): repository, full commit
@@ -192,10 +207,11 @@ text, and it reflects the social biases of its web training data (see the
 [CLIP model card](https://github.com/openai/CLIP/blob/main/model-card.md)).
 Treat visual ranking as a research aid, not ground truth.
 
-The detail drawer follows the active ordering: with a `rank` parameter,
-previous/next step through the ranked result set and the drawer shows the
-sample's own similarity score; without one, they follow stable-ID order. Both
-traverse the complete filtered result set, not just the visible page.
+The detail drawer follows the active ordering: with a `rank` or `similar_to`
+parameter, previous/next step through the ranked result set and the drawer
+shows the sample's own similarity score; without one, they follow stable-ID
+order. Both traverse the complete filtered result set, not just the visible
+page.
 
 The default test suite never loads or downloads the real model. After
 preparation, an optional real-model smoke test is available:

@@ -51,6 +51,8 @@ export function useFilterParams() {
         if (value) params.set(key, value)
         else params.delete(key)
       }
+      // There is one ordering at a time: a description replaces a reference image.
+      if (rank) params.delete('similar_to')
     })
   }
 

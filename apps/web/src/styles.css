@@ -702,6 +702,7 @@ footer {
 
 .detail-navigation {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
@@ -709,6 +710,10 @@ footer {
 
 .detail-navigation .button {
   flex: 1;
+}
+
+.detail-navigation .button--wide {
+  flex-basis: 100%;
 }
 
 .caption-section,

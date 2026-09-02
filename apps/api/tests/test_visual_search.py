@@ -941,3 +941,107 @@ def test_model_lock_rejects_invalid_content(
 
     with pytest.raises(RuntimeError, match=match):
         load_model_lock(lock_path)
+
+
+def test_similar_to_ranks_by_a_sample_embedding_with_the_reference_first(
+    visual_settings: Settings,
+) -> None:
+    with _make_client(visual_settings) as client:
+        response = client.get("/api/samples", params={"similar_to": "sample-c"})
+
+    # Against c = (0.6, 0.8): c itself scores 1.0, d 0.8, a and b 0.6, so the
+    # reference image leads its own results.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 4
+    assert [item["id"] for item in body["items"]] == [
+        "sample-c",
+        "sample-d",
+        "sample-a",
+        "sample-b",
+    ]
+    assert body["items"][0]["similarity"] == pytest.approx(1.0)
+    assert body["items"][1]["similarity"] == pytest.approx(0.8)
+
+
+def test_similar_to_composes_with_the_split_filter(visual_settings: Settings) -> None:
+    # The leakage check: images similar to a test sample, within train only.
+    with _make_client(visual_settings) as client:
+        response = client.get(
+            "/api/samples", params={"similar_to": "sample-d", "split": "train"}
+        )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        "sample-c",
+        "sample-a",
+        "sample-b",
+    ]
+    assert response.json()["items"][0]["similarity"] == pytest.approx(0.8)
+
+
+def test_similar_to_gives_ranked_detail_neighbors(visual_settings: Settings) -> None:
+    with _make_client(visual_settings) as client:
+        reference = client.get(
+            "/api/samples/sample-c", params={"similar_to": "sample-c"}
+        )
+        second = client.get("/api/samples/sample-d", params={"similar_to": "sample-c"})
+
+    # Similar-to-c order is c, d, a, b.
+    assert reference.status_code == 200
+    assert reference.json()["similarity"] == pytest.approx(1.0)
+    assert reference.json()["previous_id"] is None
+    assert reference.json()["next_id"] == "sample-d"
+    assert second.json()["previous_id"] == "sample-c"
+    assert second.json()["next_id"] == "sample-a"
+    assert second.json()["similarity"] == pytest.approx(0.8)
+
+
+def test_similar_to_rejects_an_unknown_sample_and_a_second_ordering(
+    visual_settings: Settings,
+) -> None:
+    with _make_client(visual_settings) as client:
+        unknown = client.get("/api/samples", params={"similar_to": "missing"})
+        both = client.get(
+            "/api/samples", params={"similar_to": "sample-c", "rank": "up"}
+        )
+        both_detail = client.get(
+            "/api/samples/sample-c", params={"similar_to": "sample-c", "rank": "up"}
+        )
+
+    assert unknown.status_code == 404
+    assert unknown.json() == {"detail": "Reference sample not found"}
+    assert both.status_code == 422
+    assert both_detail.status_code == 422
+
+
+def test_similar_to_is_trimmed_like_a_description(visual_settings: Settings) -> None:
+    with _make_client(visual_settings) as client:
+        padded = client.get("/api/samples", params={"similar_to": "  sample-c  "})
+        blank = client.get("/api/samples", params={"similar_to": "   "})
+
+    assert padded.status_code == 200
+    assert padded.json()["items"][0]["id"] == "sample-c"
+    assert blank.status_code == 422
+
+
+def test_similar_to_unavailable_without_the_visual_index(tmp_path: Path) -> None:
+    settings = _prepare_visual_settings(tmp_path)
+    settings.visual_manifest_path.unlink()
+
+    with _make_client(settings) as client:
+        response = client.get("/api/samples", params={"similar_to": "sample-c"})
+
+    assert response.status_code == 503
+
+
+def test_similar_to_does_not_load_the_text_encoder(visual_settings: Settings) -> None:
+    factory = Mock(side_effect=AssertionError("the text encoder must not load"))
+
+    with TestClient(
+        create_app(visual_settings, text_encoder_factory=factory)
+    ) as client:
+        response = client.get("/api/samples", params={"similar_to": "sample-c"})
+
+    assert response.status_code == 200
+    factory.assert_not_called()

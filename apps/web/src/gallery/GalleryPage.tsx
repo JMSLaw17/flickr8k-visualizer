@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { listSamples, type SamplePage } from '../dataset/api'
 import GallerySkeleton from './GallerySkeleton'
 import SampleCard from './SampleCard'
-import { filterChips, parseOffset, parseRank, type FilterChip } from '../dataset/filters'
+import { filterChips, parseOffset, parseOrdering, type FilterChip } from '../dataset/filters'
 import { getErrorMessage } from '../dataset/formatters'
 import { isSampleDrawerOpen } from '../detail/sampleRoute'
 import EmptyResults from '../shared/EmptyResults'
@@ -39,15 +39,25 @@ function GalleryPage() {
 
   const offset = parseOffset(searchParams)
   const committedQuery = filters.q ?? ''
-  // The rank description orders results by CLIP similarity; it is not a
-  // filter and never changes which samples match.
-  const committedRank = parseRank(searchParams)
+  // An ordering, by a description or by a reference image, sorts results by
+  // CLIP similarity; it is not a filter and never changes which samples match.
+  const ordering = parseOrdering(searchParams)
+  const committedRank = ordering.rank ?? ''
   const rankActive = committedRank !== ''
+  const similarTo = ordering.similar_to ?? ''
+  const similarActive = similarTo !== ''
+  const orderingActive = rankActive || similarActive
+  const orderingLabel = rankActive
+    ? `similarity to “${committedRank}”`
+    : similarActive
+      ? `similarity to image ${similarTo}`
+      : ''
   const chips: FilterChip[] = [
     ...filterChips(filters),
     ...(rankActive
       ? [{ label: `Ranked by: “${committedRank}”`, keys: ['rank'] }]
       : []),
+    ...(similarActive ? [{ label: `Similar to: ${similarTo}`, keys: ['similar_to'] }] : []),
   ]
   const hasOtherFilters = chips.some((chip) => !chip.keys.includes('q'))
 
@@ -67,6 +77,7 @@ function GalleryPage() {
         offset,
         ...filters,
         rank: rankActive ? committedRank : undefined,
+        similar_to: similarActive ? similarTo : undefined,
       },
       controller.signal,
     )
@@ -91,7 +102,7 @@ function GalleryPage() {
       })
 
     return () => controller.abort()
-  }, [committedRank, filters, offset, rankActive, requestVersion])
+  }, [committedRank, filters, offset, rankActive, requestVersion, similarActive, similarTo])
 
   const setOffset = (nextOffset: number) => {
     updateParams((params) => {
@@ -111,9 +122,7 @@ function GalleryPage() {
     return { totalPages, currentPage, firstItem, lastItem }
   }, [page])
 
-  const rankSuffix = rankActive
-    ? ` · ranked by similarity to “${committedRank}”`
-    : ''
+  const rankSuffix = orderingActive ? ` · ranked by ${orderingLabel}` : ''
   const resultSummary =
     page && pageInfo && page.total > 0
       ? committedQuery
@@ -122,8 +131,8 @@ function GalleryPage() {
       : ''
   const resultAnnouncement =
     status === 'loading'
-      ? rankActive
-        ? `Ranking images by similarity to “${committedRank}”`
+      ? orderingActive
+        ? `Ranking images by ${orderingLabel}`
         : committedQuery
           ? `Searching captions for “${committedQuery}”`
           : 'Loading samples'
@@ -168,7 +177,7 @@ function GalleryPage() {
         <div className="state-card" role="alert">
           <span className="state-card__mark">!</span>
           <h3>
-            {rankActive
+            {orderingActive
               ? 'Couldn’t rank images'
               : committedQuery
                 ? 'Couldn’t search captions'
@@ -176,7 +185,7 @@ function GalleryPage() {
           </h3>
           <p>{error}</p>
           <p className="state-card__hint">
-            {rankActive && error.includes('Visual search is not prepared')
+            {orderingActive && error.includes('Visual search is not prepared')
               ? 'Run npm run prepare:data to build the visual ranking index, then try again.'
               : 'Make sure the local API is running, then try again.'}
           </p>

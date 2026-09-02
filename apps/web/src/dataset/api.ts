@@ -87,8 +87,10 @@ export function filterSearchParams(
 export interface ListSamplesParams extends SampleFilters {
   limit: number
   offset: number
-  /** Orders results by CLIP similarity; never changes which samples match. */
+  /** Orders results by CLIP similarity to a description; never changes which samples match. */
   rank?: string
+  /** Orders results by CLIP similarity to a sample's image; that sample leads. */
+  similar_to?: string
 }
 
 export interface DistributionBin {
@@ -182,7 +184,7 @@ function errorDetail(detail: unknown): string | null {
 }
 
 export function listSamples(
-  { limit, offset, rank, ...filters }: ListSamplesParams,
+  { limit, offset, rank, similar_to, ...filters }: ListSamplesParams,
   signal?: AbortSignal,
 ): Promise<SamplePage> {
   const query = filterSearchParams(
@@ -190,22 +192,25 @@ export function listSamples(
     new URLSearchParams({ limit: String(limit), offset: String(offset) }),
   )
   if (rank !== undefined) query.set('rank', rank)
+  if (similar_to !== undefined) query.set('similar_to', similar_to)
 
   return request<SamplePage>(`/api/samples?${query}`, signal)
 }
 
 export interface SampleDetailParams extends SampleFilters {
-  /** Rank context: enables ranked-order neighbors and the sample's score. */
+  /** Ordering context: enables ranked-order neighbors and the sample's score. */
   rank?: string
+  similar_to?: string
 }
 
 export function getSample(
   id: string,
-  { rank, ...filters }: SampleDetailParams = {},
+  { rank, similar_to, ...filters }: SampleDetailParams = {},
   signal?: AbortSignal,
 ): Promise<SampleDetail> {
   const query = filterSearchParams(filters)
   if (rank !== undefined) query.set('rank', rank)
+  if (similar_to !== undefined) query.set('similar_to', similar_to)
   const suffix = query.size > 0 ? `?${query}` : ''
   return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}${suffix}`, signal)
 }

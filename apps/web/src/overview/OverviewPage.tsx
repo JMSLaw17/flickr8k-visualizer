@@ -11,7 +11,8 @@ import {
   binFilters,
   filterChips,
   galleryPath,
-  parseRank,
+  parseOrdering,
+  withOrdering,
   SPLITS,
   withoutFilters,
 } from '../dataset/filters'
@@ -49,7 +50,7 @@ function OverviewPage() {
   const [overview, setOverview] = useState<DatasetOverview | null>(null)
   const [status, setStatus] = useState<LoadState>('loading')
   const [error, setError] = useState('')
-  const rank = parseRank(searchParams)
+  const ordering = parseOrdering(searchParams)
   const chips = filterChips(filters)
   const scopeSuffix = Object.keys(filters).length > 0 ? ' in scope' : ''
   const empty = overview !== null && overview.sample_count === 0
@@ -94,8 +95,9 @@ function OverviewPage() {
   // Ranges clear both bounds first: an open-ended bin sets only the lower one,
   // so a scoped upper bound must not survive the merge.
   const scopedPath: ScopedPath = (extra, clear = []) =>
-    galleryPath({ ...withoutFilters(filters, clear), ...extra }, rank)
-  const clearSampleFilters = () => setSearchParams(rank ? { rank } : {})
+    galleryPath({ ...withoutFilters(filters, clear), ...extra }, ordering)
+  const clearSampleFilters = () =>
+    setSearchParams(withOrdering(new URLSearchParams(), ordering))
 
   return (
     <section className="overview-section" aria-labelledby="overview-title">
@@ -110,7 +112,7 @@ function OverviewPage() {
           <SearchForm
             filters={filters}
             shortcutEnabled={!isSampleDrawerOpen(searchParams)}
-            onSubmit={(query) => applySearch(query, rank)}
+            onSubmit={(query) => applySearch(query, ordering.rank ?? '')}
           />
           <SplitSelect value={filters.split} onChange={setSplit} />
         </div>
@@ -141,7 +143,7 @@ function OverviewPage() {
           <EmptyResults
             query={filters.q ?? ''}
             hasOtherFilters={chips.some((chip) => !chip.keys.includes('q'))}
-            onClearSearch={() => applySearch('', rank)}
+            onClearSearch={() => applySearch('', ordering.rank ?? '')}
             onClearFilters={clearSampleFilters}
           />
           {hasSamplesInOtherSplits && (

@@ -335,3 +335,32 @@ it('renders captions plainly without a caption search', async () => {
   await screen.findByRole('heading', { name: detail.source_id })
   expect(document.querySelector('.caption-list mark')).toBeNull()
 })
+
+it('offers to find similar images and labels scores against the reference image', async () => {
+  const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ ...detail, similarity: 0.91 })))
+  vi.stubGlobal('fetch', fetchMock)
+  const onFindSimilar = vi.fn()
+  const user = userEvent.setup()
+
+  render(
+    <DetailPanel
+      sampleId={detail.id}
+      filters={{ split: 'train', similar_to: 'anchor' }}
+      onClose={() => undefined}
+      onNavigate={() => undefined}
+      onFindSimilar={onFindSimilar}
+    />,
+  )
+
+  await screen.findByRole('heading', { name: detail.source_id })
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    `/api/samples/${detail.id}?split=train&similar_to=anchor`,
+    { signal: expect.any(AbortSignal) },
+  )
+  expect(
+    screen.getByText('CLIP cosine similarity to the reference image: 0.910'),
+  ).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: 'Find similar images' }))
+  expect(onFindSimilar).toHaveBeenCalledTimes(1)
+})

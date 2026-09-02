@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .caption_text import trim_caption_query
 
@@ -84,11 +84,29 @@ class RankedSampleFilters(SampleFilters):
     """
 
     rank: str | None = Field(default=None, min_length=1, max_length=200)
+    # similar_to orders by similarity to a sample's stored image embedding
+    # instead of an encoded description; there is only ever one ordering.
+    similar_to: str | None = Field(default=None, min_length=1, max_length=200)
 
     @field_validator("rank", mode="before")
     @classmethod
     def trim_rank(cls, value: object) -> object:
         return trim_caption_query(value) if isinstance(value, str) else value
+
+    @field_validator("similar_to", mode="before")
+    @classmethod
+    def trim_similar_to(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def one_ordering(self) -> "RankedSampleFilters":
+        if self.rank is not None and self.similar_to is not None:
+            raise ValueError("rank and similar_to cannot be combined")
+        return self
+
+    @property
+    def ordered(self) -> bool:
+        return self.rank is not None or self.similar_to is not None
 
 
 class SampleQuery(RankedSampleFilters):

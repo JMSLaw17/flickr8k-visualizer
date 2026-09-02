@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Mapping
-from contextlib import closing
+from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -244,6 +244,47 @@ def visual_identity_matches_locks(manifest_path: Path, ready_path: Path) -> bool
     )
 
 
+@contextmanager
+def _visual_connection(database_path: Path) -> Iterator[sqlite3.Connection]:
+    """Open the database for a visual query, translating SQLite failures.
+
+    Only a missing embeddings table means the visual index is absent; other
+    operational errors (e.g. a locked database) are not fixed by rerunning
+    data preparation.
+    """
+    if not database_path.is_file():
+        raise DatabaseUnavailableError("Dataset database is not ready")
+
+    try:
+        with closing(connect_database(database_path)) as connection:
+            yield connection
+    except sqlite3.OperationalError as error:
+        if "no such table: clip_embeddings" in str(error):
+            raise VisualIndexUnavailableError(
+                "Visual search index is missing"
+            ) from error
+        raise DatabaseUnavailableError("Dataset database is not ready") from error
+    except sqlite3.Error as error:
+        raise DatabaseUnavailableError("Dataset database is not ready") from error
+
+
+def load_embedding(database_path: Path, sample_id: str) -> np.ndarray | None:
+    """Stored embedding for one sample, or None when the sample is unknown.
+
+    Lets a sample's own image act as the ranking query without loading the
+    text encoder.
+    """
+    with _visual_connection(database_path) as connection:
+        row = connection.execute(
+            "SELECT vector FROM clip_embeddings WHERE sample_id = ?",
+            (sample_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+    return np.frombuffer(row["vector"], dtype=VECTOR_DTYPE)
+
+
 def rank_samples(
     database_path: Path,
     query_vector: np.ndarray,
@@ -257,26 +298,11 @@ def rank_samples(
     Ranking never changes which samples match, only their order, which is
     deterministic: similarity descending, then sample ID ascending.
     """
-    if not database_path.is_file():
-        raise DatabaseUnavailableError("Dataset database is not ready")
-
-    try:
-        with closing(connect_database(database_path)) as connection:
-            ranked = _rank_filtered_samples(connection, filters, query_vector)
-            records = _load_page_records(
-                connection, ranked[offset : offset + limit], query=filters.q
-            )
-    except sqlite3.OperationalError as error:
-        # Only a missing embeddings table means the visual index is absent;
-        # other operational errors (e.g. a locked database) are not fixed by
-        # rerunning data preparation.
-        if "no such table: clip_embeddings" in str(error):
-            raise VisualIndexUnavailableError(
-                "Visual search index is missing"
-            ) from error
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+    with _visual_connection(database_path) as connection:
+        ranked = _rank_filtered_samples(connection, filters, query_vector)
+        records = _load_page_records(
+            connection, ranked[offset : offset + limit], query=filters.q
+        )
 
     return len(ranked), records
 
@@ -293,49 +319,37 @@ def rank_neighbors(
     Mirrors the stable-ID neighbor semantics: a sample outside the filtered
     set gets no neighbors, but its own similarity is still reported.
     """
-    if not database_path.is_file():
-        raise DatabaseUnavailableError("Dataset database is not ready")
-
-    try:
-        with closing(connect_database(database_path)) as connection:
-            ranked = _rank_filtered_samples(connection, filters, query_vector)
-            position = next(
-                (
-                    index
-                    for index, (ranked_id, _) in enumerate(ranked)
-                    if ranked_id == sample_id
-                ),
-                None,
+    with _visual_connection(database_path) as connection:
+        ranked = _rank_filtered_samples(connection, filters, query_vector)
+        position = next(
+            (
+                index
+                for index, (ranked_id, _) in enumerate(ranked)
+                if ranked_id == sample_id
+            ),
+            None,
+        )
+        if position is None:
+            row = connection.execute(
+                """
+                SELECT samples.id, clip_embeddings.vector
+                FROM samples
+                LEFT JOIN clip_embeddings
+                    ON clip_embeddings.sample_id = samples.id
+                WHERE samples.id = ?
+                """,
+                (sample_id,),
+            ).fetchone()
+            similarity = (
+                _rank_by_similarity([row], query_vector)[0][1]
+                if row is not None
+                else None
             )
-            if position is None:
-                row = connection.execute(
-                    """
-                    SELECT samples.id, clip_embeddings.vector
-                    FROM samples
-                    LEFT JOIN clip_embeddings
-                        ON clip_embeddings.sample_id = samples.id
-                    WHERE samples.id = ?
-                    """,
-                    (sample_id,),
-                ).fetchone()
-                similarity = (
-                    _rank_by_similarity([row], query_vector)[0][1]
-                    if row is not None
-                    else None
-                )
-                return {
-                    "previous_id": None,
-                    "next_id": None,
-                    "similarity": similarity,
-                }
-    except sqlite3.OperationalError as error:
-        if "no such table: clip_embeddings" in str(error):
-            raise VisualIndexUnavailableError(
-                "Visual search index is missing"
-            ) from error
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+            return {
+                "previous_id": None,
+                "next_id": None,
+                "similarity": similarity,
+            }
 
     return {
         "previous_id": ranked[position - 1][0] if position > 0 else None,

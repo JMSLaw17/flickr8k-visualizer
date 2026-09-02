@@ -334,3 +334,48 @@ it('explains how to prepare visual ranking when a ranked request fails', async (
   )
   expect(alert).not.toHaveTextContent('Make sure the local API is running')
 })
+
+it('ranks by a reference image from the URL until a description replaces it', async () => {
+  const fetchMock = vi.fn(() => Promise.resolve(pageResponse([rankedItem])))
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?similar_to=anchor&split=train')
+
+  expect(
+    await screen.findByText('Ranking images by similarity to image anchor'),
+  ).toHaveClass('visually-hidden')
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/samples?limit=24&offset=0&split=train&similar_to=anchor',
+    { signal: expect.any(AbortSignal) },
+  )
+  expect(
+    await screen.findByText('Showing 1–1 of 1 · ranked by similarity to image anchor', {
+      selector: '.results-summary',
+    }),
+  ).toBeInTheDocument()
+  expect(screen.getByRole('list', { name: 'Active filters' })).toHaveTextContent(
+    'Similar to: anchor',
+  )
+  expect(screen.getByRole('searchbox', { name: 'Rank by image content' })).toHaveValue('')
+
+  // A description is the other ordering, so applying one drops the reference.
+  await user.type(
+    screen.getByRole('searchbox', { name: 'Rank by image content' }),
+    'a dog{Enter}',
+  )
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/samples?limit=24&offset=0&split=train&rank=a+dog',
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+  expect(screen.queryByText('Similar to: anchor')).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: 'Remove filter: Ranked by: “a dog”' }))
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/samples?limit=24&offset=0&split=train', {
+      signal: expect.any(AbortSignal),
+    })
+  })
+})
