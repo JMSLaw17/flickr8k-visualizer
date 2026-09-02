@@ -11,8 +11,8 @@
   --muted: #706c63;
   --line: #d8d3c9;
   --paper: #fffdf9;
-  --accent: #075f55;
-  --accent-strong: #044a42;
+  --accent: #563597;
+  --accent-strong: #3f2472;
   --shadow: 0 18px 48px rgb(48 43 34 / 10%);
 }
 
@@ -327,8 +327,8 @@ h1 {
 }
 
 .split-badge--test {
-  background: #e7e8f7;
-  color: #4d5288;
+  background: #e1ecf8;
+  color: #2b5a8c;
 }
 
 .sample-card__body {
@@ -868,7 +868,7 @@ footer {
 }
 
 .site-nav a:focus-visible {
-  outline: 3px solid rgb(7 95 85 / 24%);
+  outline: 3px solid rgb(86 53 151 / 24%);
   outline-offset: 3px;
 }
 
@@ -888,9 +888,9 @@ footer {
   max-width: 100%;
   min-height: 34px;
   padding: 0 6px 0 13px;
-  border: 1px solid #cdd8d2;
+  border: 1px solid #d3cbe4;
   border-radius: 999px;
-  background: #e9f0ec;
+  background: #ede8f6;
   color: var(--accent-strong);
   font-size: 0.78rem;
   font-weight: 650;
@@ -910,7 +910,7 @@ footer {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgb(7 95 85 / 12%);
+  background: rgb(86 53 151 / 12%);
   color: var(--accent-strong);
   font-size: 0.9rem;
   line-height: 1;
@@ -918,7 +918,7 @@ footer {
 }
 
 .filter-chip button:hover {
-  background: rgb(7 95 85 / 24%);
+  background: rgb(86 53 151 / 24%);
 }
 
 .overview-section {
