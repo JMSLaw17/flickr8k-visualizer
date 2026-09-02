@@ -301,36 +301,66 @@ def _sample_neighbors(
     )
 
 
-def get_overview_source(database_path: Path) -> dict[str, Any]:
-    """Raw per-value counts and duplicate members behind the overview endpoint."""
+def get_overview_source(
+    database_path: Path, *, filters: SampleFilters
+) -> dict[str, Any]:
+    """Raw per-value counts and duplicate members behind the overview endpoint.
+
+    The gallery filters scope every count; duplicate members are always
+    dataset-wide.
+    """
     _require_database(database_path)
+    # The caption predicates call Python functions per row, so they are
+    # evaluated once into a temporary scope table that every count joins,
+    # instead of once per aggregate query. The split is left out of that
+    # table so the split chart can compare the other filters across splits;
+    # every other count applies it on top.
+    clauses, parameters = filter_clauses(filters.model_copy(update={"split": None}))
+    where_clause = compose_where_clause(clauses)
+    split_clause = " WHERE scope.split = ?" if filters.split is not None else ""
+    split_parameters = [filters.split] if filters.split is not None else []
+    samples_in_scope = f"FROM samples JOIN scope ON scope.id = samples.id{split_clause}"
+    captions_in_scope = (
+        f"FROM captions JOIN scope ON scope.id = captions.sample_id{split_clause}"
+    )
     try:
         with closing(connect_database(database_path)) as connection:
+            connection.execute(
+                "CREATE TEMP TABLE scope AS"
+                f" SELECT id, split FROM samples{where_clause}",
+                parameters,
+            )
             split_counts = _value_counts(
-                connection, "SELECT split, COUNT(*) FROM samples GROUP BY split"
+                connection, "SELECT split, COUNT(*) FROM scope GROUP BY split", []
             )
-            width_counts = _value_counts(
-                connection, "SELECT width, COUNT(*) FROM samples GROUP BY width"
-            )
-            height_counts = _value_counts(
-                connection, "SELECT height, COUNT(*) FROM samples GROUP BY height"
-            )
+            sample_count = connection.execute(
+                f"SELECT COUNT(*) FROM scope{split_clause}", split_parameters
+            ).fetchone()[0]
+            dimension_counts = {
+                (row[0], row[1]): row[2]
+                for row in connection.execute(
+                    f"SELECT width, height, COUNT(*) {samples_in_scope}"
+                    " GROUP BY width, height",
+                    split_parameters,
+                )
+            }
             ratio_counts = _value_counts(
                 connection,
-                """
-                SELECT CAST(width AS REAL) / height AS ratio, COUNT(*)
-                FROM samples GROUP BY ratio
-                """,
+                f"SELECT CAST(width AS REAL) / height AS ratio, COUNT(*)"
+                f" {samples_in_scope} GROUP BY ratio",
+                split_parameters,
             )
             caption_token_counts = _value_counts(
                 connection,
-                f"""
-                SELECT {CAPTION_TOKEN_COUNT_SQL} AS tokens, COUNT(*)
-                FROM captions GROUP BY tokens
-                """,
+                f"SELECT {CAPTION_TOKEN_COUNT_SQL} AS tokens, COUNT(*)"
+                f" {captions_in_scope} GROUP BY tokens",
+                split_parameters,
             )
             captions = [
-                row[0] for row in connection.execute("SELECT text FROM captions")
+                row[0]
+                for row in connection.execute(
+                    f"SELECT captions.text {captions_in_scope}", split_parameters
+                )
             ]
             duplicate_members = [
                 dict(row)
@@ -348,9 +378,9 @@ def get_overview_source(database_path: Path) -> dict[str, Any]:
         raise DatabaseUnavailableError("Dataset database is not ready") from error
 
     return {
+        "sample_count": sample_count,
         "split_counts": split_counts,
-        "width_counts": width_counts,
-        "height_counts": height_counts,
+        "dimension_counts": dimension_counts,
         "ratio_counts": ratio_counts,
         "caption_token_counts": caption_token_counts,
         "captions": captions,
@@ -358,8 +388,10 @@ def get_overview_source(database_path: Path) -> dict[str, Any]:
     }
 
 
-def _value_counts(connection: sqlite3.Connection, query: str) -> Counter[Any]:
-    return Counter({row[0]: row[1] for row in connection.execute(query)})
+def _value_counts(
+    connection: sqlite3.Connection, query: str, parameters: list[object]
+) -> Counter[Any]:
+    return Counter({row[0]: row[1] for row in connection.execute(query, parameters)})
 
 
 def _load_captions(

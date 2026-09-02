@@ -17,14 +17,18 @@ After preparation, the running application does not contact Hugging Face or any 
   composable with literal caption search, exact-term search, and every other
   filter, runs locally with the pinned CLIP model, and shows each result's raw
   cosine similarity score.
-- **Overview**: sample counts by split, the caption-length distribution, common
-  caption terms, image width/height distributions, and the aspect-ratio
-  distribution. Every chart value links to the gallery filtered to the matching
-  samples, so the shape of the dataset is always one click from the underlying
-  images.
+- **Overview**: sample counts by split, the most common exact image sizes with
+  a summary of the remaining long tail, the aspect-ratio distribution, the
+  caption-length distribution, and common caption terms. The overview has the
+  same caption search and split controls as the gallery and accepts the same
+  filters, and the navigation keeps them when switching pages, so any subset
+  can be compared against the whole dataset. Each split, listed common size,
+  ratio, caption-length, and term value links to the matching gallery; the
+  remaining dimension long tail is summarized without listing every rare size.
 - **Data quality**: exact-duplicate groups detected by content SHA-256, the
   number of affected images, cross-split duplicate groups highlighted
-  separately, and one-click access to each duplicate's detail view.
+  separately, and one-click access to each duplicate's detail view. This
+  section always covers the whole dataset, independent of the overview scope.
 
 For example, [`/?q=snow&rank=a+dog+jumping&split=train`](http://localhost:5173/?q=snow&rank=a+dog+jumping&split=train)
 filters the training split to captions containing “snow,” then ranks those same

@@ -27,6 +27,7 @@ from .models import (
     Health,
     RankedSampleFilters,
     SampleDetail,
+    SampleFilters,
     SampleList,
     SampleQuery,
     SampleSummary,
@@ -35,10 +36,10 @@ from .stats import (
     ASPECT_RATIO_BIN_WIDTH,
     ASPECT_RATIO_OPEN_END,
     CAPTION_LENGTH_OPEN_END,
-    DIMENSION_BIN_WIDTH,
     binned_distribution,
     summarize_duplicates,
     top_caption_terms,
+    top_dimensions,
 )
 from .visual_search import (
     TextEncoder,
@@ -124,9 +125,11 @@ def create_app(
         )
 
     @app.get("/api/overview", response_model=DatasetOverview)
-    def overview() -> DatasetOverview:
+    def overview(filters: Annotated[SampleFilters, Query()]) -> DatasetOverview:
+        # The same filters as /api/samples scope every chart, so overview
+        # values always match the gallery page they link to.
         _require_prepared(settings)
-        source = get_overview_source(settings.database_path)
+        source = get_overview_source(settings.database_path, filters=filters)
         split_counts = source["split_counts"]
         duplicate_members = [
             {
@@ -136,7 +139,7 @@ def create_app(
             for member in source["duplicate_members"]
         ]
         return DatasetOverview(
-            sample_count=sum(split_counts.values()),
+            sample_count=source["sample_count"],
             caption_count=sum(source["caption_token_counts"].values()),
             split_counts={split: split_counts.get(split, 0) for split in SPLIT_ORDER},
             caption_lengths=binned_distribution(
@@ -145,12 +148,7 @@ def create_app(
                 open_end_start=CAPTION_LENGTH_OPEN_END,
             ),
             top_terms=top_caption_terms(source["captions"]),
-            widths=binned_distribution(
-                source["width_counts"], bin_width=DIMENSION_BIN_WIDTH
-            ),
-            heights=binned_distribution(
-                source["height_counts"], bin_width=DIMENSION_BIN_WIDTH
-            ),
+            dimensions=top_dimensions(source["dimension_counts"]),
             aspect_ratios=binned_distribution(
                 source["ratio_counts"],
                 bin_width=ASPECT_RATIO_BIN_WIDTH,

@@ -4,7 +4,12 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { parseRank, useSampleFilters } from '../dataset/filters'
 import { getRouteMetadata } from '../routes'
 import DetailPanel from './DetailPanel'
-import { drawerOpenerId, isAppOpenedDrawer } from './sampleRoute'
+import {
+  clearDrawerParams,
+  drawerOpenerId,
+  isAppOpenedDrawer,
+  isUnscopedDrawer,
+} from './sampleRoute'
 
 function RoutedDetailPanel() {
   const location = useLocation()
@@ -15,6 +20,8 @@ function RoutedDetailPanel() {
   // With a rank context, the drawer navigates in ranked order and shows the
   // sample's similarity; without one it follows stable-ID order.
   const rank = parseRank(searchParams)
+  // Links such as duplicate members open the drawer over the whole dataset.
+  const unscoped = isUnscopedDrawer(searchParams)
   const previousDrawer = useRef({
     pathname: location.pathname,
     sampleId,
@@ -56,7 +63,7 @@ function RoutedDetailPanel() {
     setSearchParams(
       (previous) => {
         const next = new URLSearchParams(previous)
-        next.delete('sample')
+        clearDrawerParams(next)
         return next
       },
       { replace: true, preventScrollReset: true },
@@ -92,7 +99,7 @@ function RoutedDetailPanel() {
   return (
     <DetailPanel
       sampleId={sampleId}
-      filters={rank ? { ...filters, rank } : filters}
+      filters={unscoped ? {} : rank ? { ...filters, rank } : filters}
       onClose={close}
       onNavigate={showSample}
     />

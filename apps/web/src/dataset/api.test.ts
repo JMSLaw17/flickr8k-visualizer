@@ -124,6 +124,22 @@ describe('dataset API', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/overview', { signal: undefined })
   })
 
+  it('scopes the overview by the gallery filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ sample_count: 0 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getOverview({ min_words: 3, split: 'test' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/overview?split=test&min_words=3', {
+      signal: undefined,
+    })
+  })
+
   it('encodes stable sample IDs and serializes detail filter context', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(detail), {

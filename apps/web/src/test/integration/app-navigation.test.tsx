@@ -225,8 +225,7 @@ it('keeps the new route heading focused when leaving an app-opened drawer', asyn
     split_counts: { train: 1, validation: 0, test: 0 },
     caption_lengths: [],
     top_terms: [],
-    widths: [],
-    heights: [],
+    dimensions: { top: [], other_sample_count: 0, other_size_count: 0 },
     aspect_ratios: [],
     duplicates: {
       group_count: 1,
@@ -482,8 +481,7 @@ it('moves focus and title across page and chart navigation', async () => {
     split_counts: { train: 1, validation: 0, test: 0 },
     caption_lengths: [],
     top_terms: [],
-    widths: [],
-    heights: [],
+    dimensions: { top: [], other_sample_count: 0, other_size_count: 0 },
     aspect_ratios: [],
     duplicates: {
       group_count: 0,
@@ -530,6 +528,58 @@ it('moves focus and title across page and chart navigation', async () => {
   expect(document.title).toBe('Browse · Flickr8k Explorer')
   expect(fetchMock).toHaveBeenLastCalledWith(
     '/api/samples?limit=24&offset=0&split=train',
+    { signal: expect.any(AbortSignal) },
+  )
+})
+
+it('keeps the filter scope when switching pages and drops page-specific state', async () => {
+  const overview = {
+    sample_count: 1,
+    caption_count: 5,
+    split_counts: { train: 1, validation: 0, test: 0 },
+    caption_lengths: [],
+    top_terms: [],
+    dimensions: { top: [], other_sample_count: 0, other_size_count: 0 },
+    aspect_ratios: [],
+    duplicates: {
+      group_count: 0,
+      affected_sample_count: 0,
+      cross_split_group_count: 0,
+      groups: [],
+    },
+  }
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input).startsWith('/api/overview')
+        ? jsonResponse(overview)
+        : pageResponse([summary]),
+    ),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+
+  renderApp('/?split=train&q=snow&rank=a+dog&offset=24')
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
+
+  expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
+    'href',
+    '/overview?split=train&q=snow&rank=a+dog',
+  )
+  await user.click(screen.getByRole('link', { name: 'Overview' }))
+
+  await screen.findByRole('heading', { name: 'Samples' })
+  // The ranking stays in the URL for the trip back; the overview ignores it.
+  expect(currentLocation()).toBe('/overview?split=train&q=snow&rank=a+dog')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/overview?split=train&q=snow', {
+    signal: expect.any(AbortSignal),
+  })
+
+  await user.click(screen.getByRole('link', { name: 'Browse' }))
+
+  await screen.findByRole('link', { name: /a dog runs through a green field/i })
+  expect(currentLocation()).toBe('/?split=train&q=snow&rank=a+dog')
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    '/api/samples?limit=24&offset=0&split=train&q=snow&rank=a+dog',
     { signal: expect.any(AbortSignal) },
   )
 })

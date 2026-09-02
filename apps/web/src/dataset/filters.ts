@@ -7,6 +7,7 @@ import {
   type DistributionBin,
   type SampleFilters,
 } from './api'
+import { formatSplit } from './formatters'
 
 export const SPLITS: readonly DatasetSplit[] = ['train', 'validation', 'test']
 export const MAX_CAPTION_QUERY_LENGTH = 200
@@ -62,11 +63,22 @@ export function parseOffset(params: URLSearchParams): number {
   return Number.isInteger(value) && value > 0 ? value : 0
 }
 
-/** Gallery path with the given filters encoded as search parameters. */
-export function galleryPath(filters: SampleFilters): string {
+/** Gallery path with the given filters and optional visual ranking. */
+export function galleryPath(filters: SampleFilters, rank = ''): string {
   const query = filterSearchParams(filters)
+  if (rank) query.set('rank', rank)
   const encoded = query.toString()
   return encoded ? `/?${encoded}` : '/'
+}
+
+/** Copy of the filters without the given keys, so a chart can replace its own range. */
+export function withoutFilters(
+  filters: SampleFilters,
+  keys: readonly (keyof SampleFilters)[],
+): SampleFilters {
+  const rest = { ...filters }
+  for (const key of keys) delete rest[key]
+  return rest
 }
 
 /** Filters selecting one histogram bin; open-ended bins omit the upper bound. */
@@ -86,9 +98,13 @@ export interface FilterChip {
   keys: string[]
 }
 
-/** Removable chips describing every non-split filter in effect. */
+/** Removable chips describing every filter in effect. */
 export function filterChips(filters: SampleFilters): FilterChip[] {
   const chips: FilterChip[] = []
+
+  if (filters.split) {
+    chips.push({ label: `Split: ${formatSplit(filters.split)}`, keys: ['split'] })
+  }
 
   if (filters.q) {
     chips.push({ label: `Caption search: “${filters.q}”`, keys: ['q'] })

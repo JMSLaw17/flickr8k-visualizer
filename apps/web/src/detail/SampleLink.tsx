@@ -1,15 +1,22 @@
 import { Link, useLocation, type LinkProps } from 'react-router-dom'
 
-import { appOpenedDrawerState } from './sampleRoute'
+import { appOpenedDrawerState, markUnscopedDrawer } from './sampleRoute'
 
 type SampleLinkProps = Omit<LinkProps, 'state' | 'to'> & {
   sampleId: string
+  /**
+   * Open the drawer over the whole dataset instead of the page's filters.
+   * The filters stay in the URL so the page underneath keeps its scope; only
+   * the drawer reads the marker.
+   */
+  unscoped?: boolean
 }
 
-function SampleLink({ sampleId, onClick, ...props }: SampleLinkProps) {
+function SampleLink({ sampleId, unscoped = false, onClick, ...props }: SampleLinkProps) {
   const location = useLocation()
   const search = new URLSearchParams(location.search)
   search.set('sample', sampleId)
+  if (unscoped) markUnscopedDrawer(search)
 
   return (
     <Link

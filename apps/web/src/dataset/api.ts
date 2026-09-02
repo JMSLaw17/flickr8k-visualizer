@@ -101,6 +101,19 @@ export interface TermCount {
   count: number
 }
 
+export interface DimensionCount {
+  width: number
+  height: number
+  count: number
+}
+
+/** Most common exact pixel sizes, plus the long tail as one remainder. */
+export interface DimensionSummary {
+  top: DimensionCount[]
+  other_sample_count: number
+  other_size_count: number
+}
+
 export interface DuplicateMember {
   id: string
   source_id: string
@@ -129,9 +142,9 @@ export interface DatasetOverview {
   split_counts: Record<DatasetSplit, number>
   caption_lengths: DistributionBin[]
   top_terms: TermCount[]
-  widths: DistributionBin[]
-  heights: DistributionBin[]
+  dimensions: DimensionSummary
   aspect_ratios: DistributionBin[]
+  /** Always dataset-wide, independent of the filters that scope the charts. */
   duplicates: DuplicateSummary
 }
 
@@ -195,6 +208,12 @@ export function getSample(
   return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}${suffix}`, signal)
 }
 
-export function getOverview(signal?: AbortSignal): Promise<DatasetOverview> {
-  return request<DatasetOverview>('/api/overview', signal)
+/** Dataset overview scoped by the same filters as the gallery listing. */
+export function getOverview(
+  filters: SampleFilters = {},
+  signal?: AbortSignal,
+): Promise<DatasetOverview> {
+  const query = filterSearchParams(filters)
+  const suffix = query.size > 0 ? `?${query}` : ''
+  return request<DatasetOverview>(`/api/overview${suffix}`, signal)
 }

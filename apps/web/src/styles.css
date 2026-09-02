@@ -116,7 +116,7 @@ h1 {
   margin-bottom: 22px;
 }
 
-.gallery-controls {
+.toolbar-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
@@ -125,11 +125,15 @@ h1 {
 }
 
 .search-control {
+  /* One field's width in the full two-field row. Both toolbars read it, so
+     the caption field is the same size with or without the ranking field. */
+  --search-field-width: 282px;
+
   display: grid;
   flex: 1 1 460px;
   gap: 7px;
   min-width: 0;
-  max-width: 660px;
+  max-width: max-content;
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 700;
@@ -142,11 +146,20 @@ h1 {
   min-width: 0;
 }
 
+/* A definite width, unlike a flex basis, counts toward the form's intrinsic
+   size, which is what lets a form hug its content. */
 .search-control__field {
   display: grid;
-  flex: 1 1 150px;
+  flex: 1 1 auto;
   gap: 7px;
+  width: var(--search-field-width);
   min-width: 0;
+}
+
+/* Without the ranking field, the form hugs its content so the button and the
+   split select follow the caption field directly. */
+.search-control--single {
+  flex: 0 1 auto;
 }
 
 .search-control input {
@@ -164,6 +177,13 @@ h1 {
   margin-bottom: 6px;
   font-size: clamp(1.35rem, 2.5vw, 1.7rem);
   letter-spacing: -0.035em;
+}
+
+.toolbar-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .results-summary {
@@ -923,7 +943,7 @@ footer {
   grid-column: 1 / -1;
 }
 
-.chart-card h3 {
+.chart-card h4 {
   margin-bottom: 4px;
   font-size: 0.78rem;
   letter-spacing: 0.1em;
@@ -1048,6 +1068,15 @@ a.histogram__hit:hover .histogram__bar {
   background: var(--accent);
 }
 
+.bar-list__row--active .bar-list__label {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.bar-list__row--active .bar-list__bar {
+  background: var(--accent-strong);
+}
+
 .bar-list__row:hover .bar-list__bar {
   background: var(--accent-strong);
 }
@@ -1081,20 +1110,42 @@ a.histogram__hit:hover .histogram__bar {
   height: 150px;
 }
 
-.quality-section {
+.overview-content {
+  transition: opacity 120ms ease;
+}
+
+.overview-content--busy {
+  opacity: 0.55;
+}
+
+.overview-group + .overview-group {
   margin-top: 44px;
   padding-top: 38px;
   border-top: 1px solid var(--line);
 }
 
-.quality-heading {
+.overview-group__heading {
   max-width: 640px;
+  margin-bottom: 20px;
 }
 
-.quality-heading h2 {
-  margin-bottom: 10px;
-  font-size: clamp(1.45rem, 2.5vw, 1.9rem);
+.overview-group__title {
+  margin-bottom: 0;
+  font-size: clamp(1.3rem, 2.2vw, 1.6rem);
   letter-spacing: -0.03em;
+}
+
+.overview-group__description {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.quality-subheading {
+  margin: 32px 0 8px;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
 }
 
 .quality-description {
@@ -1108,7 +1159,7 @@ a.histogram__hit:hover .histogram__bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
-  margin: 0 0 26px;
+  margin: 0;
 }
 
 .quality-tile {
@@ -1305,7 +1356,7 @@ a.histogram__hit:hover .histogram__bar {
 }
 
 @media (width <= 700px) {
-  .gallery-controls {
+  .toolbar-controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1320,9 +1371,17 @@ a.histogram__hit:hover .histogram__bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .search-control--single .search-control__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .search-control__row .button {
     grid-column: 1 / -1;
     width: 100%;
+  }
+
+  .search-control__field {
+    width: auto;
   }
 
   .filter-control {

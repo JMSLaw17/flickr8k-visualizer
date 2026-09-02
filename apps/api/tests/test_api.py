@@ -731,19 +731,14 @@ def test_overview_reports_distributions_and_duplicates(
         {"term": "dog", "count": 2},
         {"term": "woman", "count": 2},
     ]
-    assert body["widths"] == [
-        {"label": "300–349", "count": 1, "min": 300, "max": 350},
-        {"label": "350–399", "count": 0, "min": 350, "max": 400},
-        {"label": "400–449", "count": 0, "min": 400, "max": 450},
-        {"label": "450–499", "count": 0, "min": 450, "max": 500},
-        {"label": "500–549", "count": 2, "min": 500, "max": 550},
-    ]
-    assert [(bin["label"], bin["count"]) for bin in body["heights"]] == [
-        ("350–399", 2),
-        ("400–449", 0),
-        ("450–499", 0),
-        ("500–549", 1),
-    ]
+    assert body["dimensions"] == {
+        "top": [
+            {"width": 500, "height": 375, "count": 2},
+            {"width": 333, "height": 500, "count": 1},
+        ],
+        "other_sample_count": 0,
+        "other_size_count": 0,
+    }
     assert body["aspect_ratios"] == [
         {"label": "0.5–0.75", "count": 1, "min": 0.5, "max": 0.75},
         {"label": "0.75–1", "count": 0, "min": 0.75, "max": 1.0},
@@ -777,6 +772,83 @@ def test_overview_reports_distributions_and_duplicates(
             }
         ],
     }
+
+
+def test_overview_is_scoped_by_the_gallery_filters(
+    overview_client: TestClient,
+) -> None:
+    response = overview_client.get("/api/overview", params={"split": "train"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sample_count"] == 2
+    assert body["caption_count"] == 4
+    # The split chart ignores the split filter so the other filters can be
+    # compared across splits; every other value is scoped.
+    assert body["split_counts"] == {"train": 2, "validation": 0, "test": 1}
+    assert [(bin["label"], bin["count"]) for bin in body["caption_lengths"]] == [
+        ("3", 2),
+        ("4", 0),
+        ("5", 2),
+    ]
+    assert body["top_terms"][:2] == [
+        {"term": "woman", "count": 2},
+        {"term": "brown", "count": 1},
+    ]
+    # Equal counts fall back to ascending width, then height.
+    assert body["dimensions"]["top"] == [
+        {"width": 333, "height": 500, "count": 1},
+        {"width": 500, "height": 375, "count": 1},
+    ]
+    assert [bin["count"] for bin in body["aspect_ratios"]] == [1, 0, 0, 1]
+    # Duplicates stay dataset-wide so cross-split leakage remains visible.
+    assert body["duplicates"]["cross_split_group_count"] == 1
+    assert [
+        member["split"] for member in body["duplicates"]["groups"][0]["samples"]
+    ] == ["train", "test"]
+
+
+def test_overview_scopes_caption_counts_by_caption_search(
+    overview_client: TestClient,
+) -> None:
+    response = overview_client.get("/api/overview", params={"q": "dog"})
+
+    assert response.status_code == 200
+    body = response.json()
+    # Both samples with a caption containing "dog" are in scope, and every
+    # caption of an in-scope sample counts, not only the matching ones.
+    assert body["sample_count"] == 2
+    assert body["caption_count"] == 3
+    assert body["split_counts"] == {"train": 1, "validation": 0, "test": 1}
+    assert body["dimensions"]["top"] == [{"width": 500, "height": 375, "count": 2}]
+
+    narrowed = overview_client.get(
+        "/api/overview", params={"q": "dog", "split": "train"}
+    ).json()
+    assert narrowed["sample_count"] == 1
+    assert narrowed["split_counts"] == {"train": 1, "validation": 0, "test": 1}
+
+
+def test_overview_with_no_matching_samples_is_empty_but_well_formed(
+    overview_client: TestClient,
+) -> None:
+    response = overview_client.get("/api/overview", params={"q": "zzzqqq"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sample_count"] == 0
+    assert body["caption_count"] == 0
+    assert body["split_counts"] == {"train": 0, "validation": 0, "test": 0}
+    assert body["caption_lengths"] == []
+    assert body["top_terms"] == []
+    assert body["dimensions"] == {
+        "top": [],
+        "other_sample_count": 0,
+        "other_size_count": 0,
+    }
+    assert body["aspect_ratios"] == []
+    # Duplicates are dataset-wide, so they are reported even for an empty scope.
+    assert body["duplicates"]["group_count"] == 1
 
 
 def test_overview_filters_link_back_to_matching_gallery_pages(

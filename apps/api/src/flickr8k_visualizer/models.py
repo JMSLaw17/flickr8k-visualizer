@@ -108,6 +108,20 @@ class TermCount(BaseModel):
     count: int
 
 
+class DimensionCount(BaseModel):
+    width: int
+    height: int
+    count: int
+
+
+class DimensionSummary(BaseModel):
+    """Most common exact pixel sizes, plus the long tail as one remainder."""
+
+    top: list[DimensionCount]
+    other_sample_count: int
+    other_size_count: int
+
+
 class DuplicateMember(BaseModel):
     id: str
     source_id: str
@@ -136,9 +150,10 @@ class DatasetOverview(BaseModel):
     split_counts: dict[DatasetSplit, int]
     caption_lengths: list[DistributionBin]
     top_terms: list[TermCount]
-    widths: list[DistributionBin]
-    heights: list[DistributionBin]
+    dimensions: DimensionSummary
     aspect_ratios: list[DistributionBin]
+    # Always dataset-wide: cross-split leakage is a property of the whole
+    # dataset, so duplicates ignore the filters that scope the charts above.
     duplicates: DuplicateSummary
 
 

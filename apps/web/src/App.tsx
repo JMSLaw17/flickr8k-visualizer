@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useSearchParams,
+} from 'react-router-dom'
 
+import { parseRank, sampleFiltersKey } from './dataset/filters'
 import RoutedDetailPanel from './detail/RoutedDetailPanel'
 import GalleryPage from './gallery/GalleryPage'
 import OverviewPage from './overview/OverviewPage'
@@ -25,6 +33,15 @@ function RouteChangeEffects() {
 }
 
 function App() {
+  const [searchParams] = useSearchParams()
+  // Both pages keep their filters in the URL, so switching pages keeps the
+  // scope. The ranking rides along so a round trip does not lose it, while
+  // pagination and the open sample stay page-specific.
+  const scopeParams = new URLSearchParams(sampleFiltersKey(searchParams))
+  const rank = parseRank(searchParams)
+  if (rank) scopeParams.set('rank', rank)
+  const scope = scopeParams.toString()
+
   return (
     <div className="app-shell">
       <RouteChangeEffects />
@@ -38,10 +55,10 @@ function App() {
         </div>
         <div className="header-side">
           <nav className="site-nav" aria-label="Primary">
-            <NavLink to="/" end>
+            <NavLink to={{ pathname: '/', search: scope }} end>
               Browse
             </NavLink>
-            <NavLink to="/overview">Overview</NavLink>
+            <NavLink to={{ pathname: '/overview', search: scope }}>Overview</NavLink>
           </nav>
         </div>
       </header>

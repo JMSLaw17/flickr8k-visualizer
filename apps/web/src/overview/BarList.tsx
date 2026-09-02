@@ -10,10 +10,12 @@ export interface BarListItem {
 interface BarListProps {
   items: BarListItem[]
   columns?: boolean
+  /** Key of the row to highlight, such as the currently selected split. */
+  activeKey?: string
 }
 
 /** Horizontal labeled bars; every row links to the matching gallery page. */
-function BarList({ items, columns = false }: BarListProps) {
+function BarList({ items, columns = false, activeKey }: BarListProps) {
   if (items.length === 0) {
     return <p className="muted">No data available.</p>
   }
@@ -25,7 +27,7 @@ function BarList({ items, columns = false }: BarListProps) {
       {items.map((item) => (
         <li key={item.key}>
           <Link
-            className="bar-list__row"
+            className={`bar-list__row${item.key === activeKey ? ' bar-list__row--active' : ''}`}
             to={item.href}
             title={`View “${item.label}” samples in the gallery`}
           >

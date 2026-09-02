@@ -2,6 +2,7 @@ from flickr8k_visualizer.stats import (
     binned_distribution,
     summarize_duplicates,
     top_caption_terms,
+    top_dimensions,
 )
 
 
@@ -53,6 +54,27 @@ def test_distribution_with_all_values_in_the_open_tail() -> None:
     bins = binned_distribution({45: 2, 60: 1}, bin_width=1, open_end_start=30)
 
     assert _bin_tuples(bins) == [("30+", 3, 30, None)]
+
+
+def test_top_dimensions_rank_exact_sizes_and_summarize_the_tail() -> None:
+    summary = top_dimensions(
+        {(500, 333): 4, (333, 500): 2, (500, 375): 4, (164, 127): 1},
+        limit=2,
+    )
+
+    assert [(size.width, size.height, size.count) for size in summary.top] == [
+        (500, 333, 4),
+        (500, 375, 4),
+    ]
+    assert summary.other_sample_count == 3
+    assert summary.other_size_count == 2
+
+
+def test_top_dimensions_with_no_samples() -> None:
+    summary = top_dimensions({})
+
+    assert summary.top == []
+    assert (summary.other_sample_count, summary.other_size_count) == (0, 0)
 
 
 def test_top_terms_filter_stopwords_and_rank_deterministically() -> None:

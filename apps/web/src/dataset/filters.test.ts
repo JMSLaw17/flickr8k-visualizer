@@ -4,6 +4,7 @@ import {
   binFilters,
   filterChips,
   galleryPath,
+  withoutFilters,
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
   parseOffset,
@@ -70,6 +71,18 @@ describe('galleryPath', () => {
     expect(galleryPath({ min_ratio: 1.25, q: 'green field', term: 'dog', max_ratio: 1.5 })).toBe(
       '/?q=green+field&term=dog&min_ratio=1.25&max_ratio=1.5',
     )
+    expect(galleryPath({ split: 'test', q: 'snow' }, 'a dog')).toBe(
+      '/?split=test&q=snow&rank=a+dog',
+    )
+  })
+})
+
+describe('withoutFilters', () => {
+  it('drops the given keys without touching the input', () => {
+    const filters = { split: 'test' as const, min_words: 9, max_words: 10 }
+
+    expect(withoutFilters(filters, ['min_words', 'max_words'])).toEqual({ split: 'test' })
+    expect(filters).toEqual({ split: 'test', min_words: 9, max_words: 10 })
   })
 })
 
@@ -86,7 +99,7 @@ describe('binFilters', () => {
 })
 
 describe('filterChips', () => {
-  it('describes every non-split filter with the params it clears', () => {
+  it('describes every filter with the params it clears', () => {
     const chips = filterChips({
       split: 'train',
       q: 'green field',
@@ -100,6 +113,7 @@ describe('filterChips', () => {
     })
 
     expect(chips).toEqual([
+      { label: 'Split: Train', keys: ['split'] },
       { label: 'Caption search: “green field”', keys: ['q'] },
       { label: 'Exact term: “dog”', keys: ['term'] },
       { label: 'Caption length: 9 tokens', keys: ['min_words', 'max_words'] },
@@ -117,7 +131,7 @@ describe('filterChips', () => {
     ])
   })
 
-  it('returns nothing when only a split is active', () => {
-    expect(filterChips({ split: 'test' })).toEqual([])
+  it('describes a split on its own', () => {
+    expect(filterChips({ split: 'test' })).toEqual([{ label: 'Split: Test', keys: ['split'] }])
   })
 })

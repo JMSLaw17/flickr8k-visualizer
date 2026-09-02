@@ -10,6 +10,8 @@ from typing import Any
 from .caption_text import caption_terms
 from .models import (
     SPLIT_ORDER,
+    DimensionCount,
+    DimensionSummary,
     DistributionBin,
     DuplicateGroup,
     DuplicateMember,
@@ -18,8 +20,8 @@ from .models import (
 )
 
 TOP_TERM_LIMIT = 30
+TOP_DIMENSION_LIMIT = 8
 CAPTION_LENGTH_OPEN_END = 30
-DIMENSION_BIN_WIDTH = 50
 ASPECT_RATIO_BIN_WIDTH = 0.25
 ASPECT_RATIO_OPEN_END = 2.0
 
@@ -88,6 +90,27 @@ def _bin_label(low: int | float, high: int | float, bin_width: float) -> str:
     if isinstance(bin_width, int):
         return str(low) if bin_width == 1 else f"{low}–{high - 1}"
     return f"{low:g}–{high:g}"
+
+
+def top_dimensions(
+    dimension_counts: Mapping[tuple[int, int], int],
+    *,
+    limit: int = TOP_DIMENSION_LIMIT,
+) -> DimensionSummary:
+    """Most common exact (width, height) sizes; the rest is one remainder."""
+    ranked = sorted(
+        ((width, height, count) for (width, height), count in dimension_counts.items()),
+        key=lambda item: (-item[2], item[0], item[1]),
+    )
+    rest = ranked[limit:]
+    return DimensionSummary(
+        top=[
+            DimensionCount(width=width, height=height, count=count)
+            for width, height, count in ranked[:limit]
+        ],
+        other_sample_count=sum(count for _, _, count in rest),
+        other_size_count=len(rest),
+    )
 
 
 def top_caption_terms(
