@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import numpy as np
@@ -9,6 +12,8 @@ from PIL import Image
 
 from .download import download_verified_file
 from .model_lock import ClipModelLock
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ModelFilesMissingError(RuntimeError):
@@ -54,10 +59,14 @@ class ClipEncoder:
         from transformers import CLIPModel, CLIPProcessor
 
         self._torch = torch
-        self._model = CLIPModel.from_pretrained(
+        self._device = _select_device(torch)
+        LOGGER.info("CLIP encoder runs on %s", self._device)
+        model = CLIPModel.from_pretrained(
             str(model_dir), use_safetensors=True, local_files_only=True
         )
-        self._model.eval()
+        if self._device != "cpu":
+            model = model.to(self._device)
+        self._model = model.eval()
         self._processor = CLIPProcessor.from_pretrained(
             str(model_dir), local_files_only=True, use_fast=False
         )
@@ -65,16 +74,41 @@ class ClipEncoder:
     def encode_images(self, images: Sequence[Image.Image]) -> np.ndarray:
         inputs = self._processor(images=list(images), return_tensors="pt")
         with self._torch.no_grad():
-            features = self._model.get_image_features(**inputs)
-        return _l2_normalized(features.numpy())
+            features = self._model.get_image_features(
+                pixel_values=self._on_device(inputs["pixel_values"])
+            )
+        return _l2_normalized(features.cpu().numpy())
 
     def encode_text(self, text: str) -> np.ndarray:
         inputs = self._processor(
             text=[text], padding=True, truncation=True, return_tensors="pt"
         )
         with self._torch.no_grad():
-            features = self._model.get_text_features(**inputs)
-        return _l2_normalized(features.numpy())[0]
+            features = self._model.get_text_features(
+                **{name: self._on_device(value) for name, value in inputs.items()}
+            )
+        return _l2_normalized(features.cpu().numpy())[0]
+
+    def _on_device(self, tensor: Any) -> Any:
+        return tensor if self._device == "cpu" else tensor.to(self._device)
+
+
+def _select_device(torch: Any) -> str:
+    """The GPU PyTorch can use on this machine, else the CPU.
+
+    Apple silicon runs the model through Metal several times faster than the
+    CPU with the same rankings. FLICKR8K_DEVICE forces a device.
+    """
+    override = os.getenv("FLICKR8K_DEVICE")
+    if override:
+        return override
+    mps = getattr(getattr(torch, "backends", None), "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    cuda = getattr(torch, "cuda", None)
+    if cuda is not None and cuda.is_available():
+        return "cuda"
+    return "cpu"
 
 
 def _l2_normalized(features: np.ndarray) -> np.ndarray:

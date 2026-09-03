@@ -30,7 +30,8 @@ from .models import SampleFilters
 LOGGER = logging.getLogger(__name__)
 
 VISUAL_MANIFEST_SCHEMA_VERSION = 1
-EMBEDDING_BATCH_SIZE = 32
+# Larger batches amortize per-call overhead; 128 images is about 80 MB of input.
+EMBEDDING_BATCH_SIZE = 128
 VECTOR_DTYPE = "<f4"  # little-endian float32
 
 

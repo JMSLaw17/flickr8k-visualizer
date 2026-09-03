@@ -6,7 +6,7 @@
   ],
   "scripts": {
     "dev": "concurrently --kill-others --names api,web --prefix-colors blue,magenta \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api": "uv run --project apps/api uvicorn flickr8k_visualizer.main:app --reload --port 8000",
+    "dev:api": "uv run --project apps/api uvicorn flickr8k_visualizer.main:app --reload --reload-dir apps/api/src --port 8000",
     "dev:web": "npm run dev --workspace apps/web",
     "setup": "npm install && uv sync --project apps/api --extra dev",
     "prepare:data": "uv run --project apps/api prepare-flickr8k",

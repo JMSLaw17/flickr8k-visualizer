@@ -4,6 +4,110 @@ A local-first browser for inspecting the Flickr8k computer vision dataset: a Rea
 
 After preparation, the running application does not contact Hugging Face or any other remote service.
 
+## Quick start
+
+From a fresh clone, with Node 24 and `uv` installed (see Prerequisites):
+
+```bash
+git clone https://github.com/JMSLaw17/flickr8k-visualizer.git
+cd flickr8k-visualizer
+nvm use
+npm run setup
+npm run prepare:data
+npm run dev
+```
+
+Then open [http://localhost:5173](http://localhost:5173). `npm run setup`
+installs both the frontend and backend dependencies, `npm run prepare:data`
+downloads and prepares the dataset and model once (about 1.7 GB, a few minutes
+on broadband plus about a minute of embedding on Apple silicon or a few on a
+CPU-only machine), and `npm run dev` starts the API and the frontend. Each
+step is explained under Setup in detail.
+
+## Prerequisites
+
+- **Node.js 24** (20.19+ and 22.13+ also work). The repository pins Node 24 in
+  `.nvmrc`; with `nvm`, run `nvm install` then `nvm use` first.
+- **[uv](https://docs.astral.sh/uv/) 0.5.11 or newer.** It manages the Python
+  side entirely: `apps/api/.python-version` pins CPython 3.11, and `uv`
+  downloads a managed build if none is installed. CPython 3.11–3.13 are the
+  versions the lock file has wheels for.
+- **Platform**: Apple silicon macOS 14+, Windows x86-64, or Linux x86-64/ARM64
+  with glibc 2.28+, the platforms covered by the locked PyTorch and PyArrow
+  wheels. CLIP inference runs on the Apple GPU through Metal when available
+  and on the CPU otherwise; no CUDA packages are downloaded.
+- **Disk**: about 2 GB under `data/flickr8k/` after preparation, roughly
+  4 GB while it runs, plus about 1 GB for the Python dependencies.
+- **On Windows**, Git symlink support: enable Developer Mode (or run Git as a
+  user with the symlink privilege) and clone with
+  `git config core.symlinks true`. `datasets/flickr8k.lock.json` and
+  `models/clip.lock.json` are symlinks to the packaged copies and check out as
+  plain text files otherwise; the app still works, but one test fails.
+
+## Setup in detail
+
+Three commands, run from the repository root.
+
+**1. Install dependencies.** This runs `npm install` for the frontend and
+`uv sync` for the backend; the two underlying commands can also be run
+directly.
+
+```bash
+npm run setup
+```
+
+**2. Download and prepare the dataset.** This is a one-time step with two
+stages, and it needs network access only while it runs:
+
+1. **Dataset**: downloads the four Parquet shards (1.1 GB) from the pinned
+   dataset revision, verifies their checksums, extracts the original images,
+   creates thumbnails, and builds the SQLite catalog. The Parquet files are
+   removed after ingestion succeeds.
+2. **Visual ranking**: downloads the pinned CLIP model (608 MB) into
+   `data/flickr8k/visual-search/model/`, verifies each file, and embeds every
+   image into a local index.
+
+```bash
+npm run prepare:data
+```
+
+Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect: the download takes a few minutes on a typical broadband
+connection, and the embedding pass takes about a minute on Apple silicon,
+where it runs on the GPU, or a few minutes on a CPU-only machine, logging
+progress every 512 images. Large downloads log their
+progress and transfer rate at each quarter, so a slow link is visible. If the
+rate is far below your connection's, check for a VPN: some VPN endpoints
+throttle downloads from Hugging Face to a small fraction of the normal speed.
+
+The command is safe to interrupt and rerun. Each finished stage is skipped,
+each verified download is reused, and only the unfinished shard is fetched
+again. If the visual stage fails, browsing still works, ranking requests
+return a clear 503, and rerunning retries only that stage. To browse before
+downloading the model, prepare the dataset alone; ranking stays disabled with a
+"Not prepared" hint until the full command runs:
+
+```bash
+npm run prepare:data -- --skip-visual
+```
+
+**3. Start the app.** This starts the API on port 8000 and the frontend on
+port 5173, which proxies API and media requests to the API.
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). Starting the app before
+preparing the data is fine: the pages explain what to run.
+
+## Verification
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
 ## Features
 
 - **Browse**: exact caption search across all five captions with matching
@@ -61,88 +165,6 @@ subject highly too. Similar-image ranking is the on-demand version of that audit
 Keyboard shortcuts: press `/` to focus caption search on either page, press
 Escape to close the detail drawer, and use the Left and Right Arrow keys to
 move between samples in the detail drawer.
-
-## Prerequisites
-
-- **Node.js 24** (20.19+ and 22.13+ also work). The repository pins Node 24 in
-  `.nvmrc`; with `nvm`, run `nvm install` then `nvm use` first.
-- **[uv](https://docs.astral.sh/uv/) 0.5.11 or newer.** It manages the Python
-  side entirely: `apps/api/.python-version` pins CPython 3.11, and `uv`
-  downloads a managed build if none is installed. CPython 3.11–3.13 are the
-  versions the lock file has wheels for.
-- **Platform**: Apple silicon macOS 14+, Windows x86-64, or Linux x86-64/ARM64
-  with glibc 2.28+, the platforms covered by the locked PyTorch and PyArrow
-  wheels. CLIP inference is CPU-only; no CUDA packages are downloaded.
-- **Disk**: about 2 GB under `data/flickr8k/` after preparation, roughly
-  4 GB while it runs, plus about 1 GB for the Python dependencies.
-- **On Windows**, Git symlink support: enable Developer Mode (or run Git as a
-  user with the symlink privilege) and clone with
-  `git config core.symlinks true`. `datasets/flickr8k.lock.json` and
-  `models/clip.lock.json` are symlinks to the packaged copies and check out as
-  plain text files otherwise; the app still works, but one test fails.
-
-## Setup
-
-Three commands, run from the repository root.
-
-**1. Install dependencies.** This runs `npm install` for the frontend and
-`uv sync` for the backend; the two underlying commands can also be run
-directly.
-
-```bash
-npm run setup
-```
-
-**2. Download and prepare the dataset.** This is a one-time step with two
-stages, and it needs network access only while it runs:
-
-1. **Dataset**: downloads the four Parquet shards (1.1 GB) from the pinned
-   dataset revision, verifies their checksums, extracts the original images,
-   creates thumbnails, and builds the SQLite catalog. The Parquet files are
-   removed after ingestion succeeds.
-2. **Visual ranking**: downloads the pinned CLIP model (608 MB) into
-   `data/flickr8k/visual-search/model/`, verifies each file, and embeds every
-   image into a local index.
-
-```bash
-npm run prepare:data
-```
-
-Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect: the download takes a few minutes on a typical broadband
-connection, and the embedding pass takes about five to ten minutes on a recent
-laptop CPU, logging progress every 512 images. Large downloads log their
-progress and transfer rate at each quarter, so a slow link is visible. If the
-rate is far below your connection's, check for a VPN: some VPN endpoints
-throttle downloads from Hugging Face to a small fraction of the normal speed.
-
-The command is safe to interrupt and rerun. Each finished stage is skipped,
-each verified download is reused, and only the unfinished shard is fetched
-again. If the visual stage fails, browsing still works, ranking requests
-return a clear 503, and rerunning retries only that stage. To browse before
-downloading the model, prepare the dataset alone; ranking stays disabled with a
-"Not prepared" hint until the full command runs:
-
-```bash
-npm run prepare:data -- --skip-visual
-```
-
-**3. Start the app.** This starts the API on port 8000 and the frontend on
-port 5173, which proxies API and media requests to the API.
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173). Starting the app before
-preparing the data is fine: the pages explain what to run.
-
-## Verification
-
-```bash
-npm test
-npm run lint
-npm run build
-```
 
 ## Data layout
 
@@ -212,6 +234,9 @@ the lock. After preparation, queries run entirely locally.
 Embeddings are stored per sample in the `clip_embeddings` SQLite table as
 little-endian float32 blobs. Images are decoded with EXIF orientation applied
 and converted to RGB before encoding, matching how the app displays them.
+Encoding runs in batches of 128 on the Apple GPU through Metal when PyTorch
+can use it and on the CPU otherwise; the two agree to within floating-point
+noise, so rankings do not depend on the machine that built the index.
 
 **Interpreting scores**: results show the raw CLIP cosine similarity (for
 example `0.284`). Higher values rank as more similar; the score is not a
@@ -247,6 +272,8 @@ FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run prepare:data
 FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run dev
 ```
 
+`FLICKR8K_DEVICE` forces the device CLIP runs on (`cpu`, `mps`, or `cuda`);
+by default the Apple GPU is used when PyTorch can see one, else the CPU.
 `FLICKR8K_DATABASE_PATH` and `FLICKR8K_MANIFEST_PATH` override the two files
 individually, and `FLICKR8K_CORS_ORIGINS` is a comma-separated list of allowed
 frontend origins (default `http://localhost:5173`).
