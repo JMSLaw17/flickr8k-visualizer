@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import sqlite3
-import threading
 from collections.abc import Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import closing, contextmanager
@@ -168,31 +167,6 @@ def _load_rgb_image(path: Path) -> Image.Image:
 def invalidate_visual_ready(data_dir: Path) -> None:
     """Unpublish the visual index; call when replacing the base database."""
     Settings.for_data_dir(data_dir).visual_ready_path.unlink(missing_ok=True)
-
-
-def start_model_download(data_dir: Path) -> Future[None]:
-    """Download the pinned model files on a background thread.
-
-    Waiting on the result surfaces any failure; prepare_visual_search verifies
-    the files again and reuses them. The thread is a daemon, so a failure in
-    the dataset stage exits promptly instead of waiting for the model.
-    """
-    from .clip_encoder import download_model_files
-
-    settings = Settings.for_data_dir(data_dir)
-    model_lock = load_model_lock()
-    future: Future[None] = Future()
-
-    def run() -> None:
-        try:
-            download_model_files(model_lock, settings.model_dir)
-        except Exception as error:
-            future.set_exception(error)
-        else:
-            future.set_result(None)
-
-    threading.Thread(target=run, name="model-download", daemon=True).start()
-    return future
 
 
 def prepare_visual_search(data_dir: Path, *, force: bool = False) -> dict[str, Any]:

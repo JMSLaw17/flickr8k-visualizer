@@ -32,11 +32,7 @@ from .dataset_lock import (
 from .db import connect_database, initialize_database, materialize_duplicate_groups
 from .download import download_verified_file, verify_file
 from .fs import write_atomic
-from .visual_search import (
-    invalidate_visual_ready,
-    prepare_visual_search,
-    start_model_download,
-)
+from .visual_search import invalidate_visual_ready, prepare_visual_search
 
 LOGGER = logging.getLogger(__name__)
 
@@ -543,11 +539,6 @@ def _parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
 def main(arguments: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     options = _parse_args(arguments)
-    # The model depends on nothing the dataset stage produces, so its download
-    # overlaps the shard downloads and ingestion.
-    model_download = (
-        None if options.skip_visual else start_model_download(options.data_dir)
-    )
     manifest = prepare_dataset(options.data_dir, force=options.force)
     LOGGER.info(
         "Prepared %s samples in %s",
@@ -560,8 +551,6 @@ def main(arguments: Sequence[str] | None = None) -> None:
             "to enable visual search"
         )
         return
-    if model_download is not None:
-        model_download.result()
     visual_manifest = prepare_visual_search(options.data_dir, force=options.force)
     LOGGER.info(
         "Visual search index covers %s samples", visual_manifest["sample_count"]

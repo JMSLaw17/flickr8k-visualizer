@@ -275,7 +275,9 @@ def _load_clip_text_encoder(settings: Settings) -> TextEncoder:
     # Imported here so the heavy model stack loads only for visual search.
     from .clip_encoder import ClipEncoder
 
-    return ClipEncoder(settings.model_dir, load_model_lock())
+    # Requests run on several threads, and PyTorch's Metal backend crashes
+    # under concurrent use; a text query costs the CPU about 50 ms anyway.
+    return ClipEncoder(settings.model_dir, load_model_lock(), device="cpu")
 
 
 def _to_summary(record: dict[str, Any]) -> SampleSummary:

@@ -36,7 +36,7 @@ API and the frontend. Each step is explained under Setup in detail.
   on Windows; an existing install updates with `uv self update`.
 - **Platform**: Apple silicon macOS 14+, Windows x86-64, or Linux x86-64/ARM64
   with glibc 2.28+, the platforms covered by the locked PyTorch and PyArrow
-  wheels. CLIP inference runs on the Apple GPU through Metal when available
+  wheels. Image embedding runs on the Apple GPU through Metal when available
   and on the CPU otherwise; no CUDA packages are downloaded.
 - **Disk**: about 2 GB under `data/flickr8k/` after preparation, roughly
   4 GB while it runs, plus about 1 GB for the Python dependencies.
@@ -69,15 +69,15 @@ stages, and it needs network access only while it runs:
    Parquet files are removed after ingestion succeeds.
 2. **Visual ranking**: downloads the pinned CLIP model (608 MB) into
    `data/flickr8k/visual-search/model/`, verifies each file, and embeds every
-   image into a local index. The model download starts in the background as
-   soon as the command runs, alongside the dataset stage.
+   image into a local index.
 
 ```bash
 npm run prepare:data
 ```
 
-Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect, measured on a laptop with a broadband connection: about four
-minutes of download for the shards and the model together, half a minute to
+Prepared data lives under `data/flickr8k/`, which Git ignores. What to
+expect, measured on a laptop with a broadband connection: about four minutes
+of download for the shards and the model together, half a minute to
 extract the images and build thumbnails, and under a minute of embedding on
 Apple silicon, where it runs on the GPU, or a few minutes on a CPU-only
 machine. Embedding logs progress every 512 images, and large downloads log
@@ -90,10 +90,9 @@ A transfer the server cuts short is resumed automatically, up to five
 attempts. The command is also safe to interrupt and rerun: each finished
 stage is skipped, each verified download is reused, and only the unfinished
 shard is fetched again. If the visual stage fails, browsing still works,
-ranking requests
-return a clear 503, and rerunning retries only that stage. To browse before
-downloading the model, prepare the dataset alone; ranking stays disabled with a
-"Not prepared" hint until the full command runs:
+ranking requests return a clear 503, and rerunning retries only that stage. To
+browse before downloading the model, prepare the dataset alone; ranking stays
+disabled with a "Not prepared" hint until the full command runs:
 
 ```bash
 npm run prepare:data -- --skip-visual
@@ -245,7 +244,9 @@ little-endian float32 blobs. Images are decoded with EXIF orientation applied
 and converted to RGB before encoding, matching how the app displays them.
 Encoding runs in batches of 128 on the Apple GPU through Metal when PyTorch
 can use it and on the CPU otherwise; the two agree to within floating-point
-noise, so rankings do not depend on the machine that built the index.
+noise, so rankings do not depend on the machine that built the index. The API
+encodes text queries on the CPU, where one takes about 50 ms: requests run on
+several threads, and PyTorch's Metal backend crashes under concurrent use.
 
 **Interpreting scores**: results show the raw CLIP cosine similarity (for
 example `0.284`). Higher values rank as more similar; the score is not a
@@ -282,10 +283,11 @@ FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run prepare:data
 FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run dev
 ```
 
-`FLICKR8K_DEVICE` forces the device CLIP runs on: `cpu`, `mps`, or `cuda`,
-the last only with a CUDA-enabled PyTorch, which the lock file does not
-install. By default the Apple GPU is used when PyTorch can see one, else the
-CPU.
+`FLICKR8K_DEVICE` forces the device image embedding runs on during
+preparation: `cpu`, `mps`, or `cuda`, the last only with a CUDA-enabled
+PyTorch, which the lock file does not install. By default the Apple GPU is
+used when PyTorch can see one, else the CPU. The API always encodes text
+queries on the CPU.
 `FLICKR8K_DATABASE_PATH` and `FLICKR8K_MANIFEST_PATH` override the two files
 individually, and `FLICKR8K_CORS_ORIGINS` is a comma-separated list of allowed
 frontend origins (default `http://localhost:5173`).

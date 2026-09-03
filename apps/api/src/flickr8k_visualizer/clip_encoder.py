@@ -39,10 +39,13 @@ class ClipEncoder:
     """Image and text encoder for the pinned CLIP checkpoint.
 
     Loads only files already present in model_dir and returns L2-normalized
-    float32 vectors, so cosine similarity is a plain dot product.
+    float32 vectors, so cosine similarity is a plain dot product. The model
+    runs on `device` when given, else on the GPU when PyTorch can use one.
     """
 
-    def __init__(self, model_dir: Path, model_lock: ClipModelLock) -> None:
+    def __init__(
+        self, model_dir: Path, model_lock: ClipModelLock, *, device: str | None = None
+    ) -> None:
         missing = [
             model_file.path
             for model_file in model_lock.files
@@ -59,7 +62,7 @@ class ClipEncoder:
         from transformers import CLIPModel, CLIPProcessor
 
         self._torch = torch
-        self._device = _select_device(torch)
+        self._device = device or _select_device(torch)
         LOGGER.info("CLIP encoder runs on %s", self._device)
         model = CLIPModel.from_pretrained(
             str(model_dir), use_safetensors=True, local_files_only=True

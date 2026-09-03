@@ -25,7 +25,11 @@ from flickr8k_visualizer.clip_encoder import (
 from flickr8k_visualizer.config import REPOSITORY_ROOT, Settings
 from flickr8k_visualizer.db import connect_database, initialize_database
 from flickr8k_visualizer.download import verify_file
-from flickr8k_visualizer.main import _LazyTextEncoder, create_app
+from flickr8k_visualizer.main import (
+    _LazyTextEncoder,
+    _load_clip_text_encoder,
+    create_app,
+)
 from flickr8k_visualizer.model_lock import ClipModelLock, ModelFile, load_model_lock
 from flickr8k_visualizer.visual_search import (
     _rank_by_similarity,
@@ -896,6 +900,50 @@ def test_clip_encoder_pins_the_slow_processor(
     processor_loader.assert_called_once_with(
         str(tmp_path), local_files_only=True, use_fast=False
     )
+
+
+def test_clip_encoder_honors_the_requested_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_contents = b"model weights"
+    model_lock = _fixture_model_lock(tmp_path, model_contents)
+    (tmp_path / "weights.bin").write_bytes(model_contents)
+    model = Mock()
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            CLIPModel=SimpleNamespace(from_pretrained=Mock(return_value=model)),
+            CLIPProcessor=SimpleNamespace(from_pretrained=Mock(return_value=Mock())),
+        ),
+    )
+
+    ClipEncoder(tmp_path, model_lock, device="cpu")
+    model.to.assert_not_called()
+
+    ClipEncoder(tmp_path, model_lock, device="mps")
+    model.to.assert_called_once_with("mps")
+
+
+def test_api_text_encoder_runs_on_the_cpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Requests run on several threads, and PyTorch's Metal backend crashes
+    under concurrent use, so the API never puts its text encoder on a GPU."""
+    constructed: list[tuple[Path, object, dict[str, object]]] = []
+
+    def fake_encoder(model_dir: Path, model_lock: object, **kwargs: object) -> object:
+        constructed.append((model_dir, model_lock, kwargs))
+        return Mock()
+
+    monkeypatch.setattr(clip_encoder_module, "ClipEncoder", fake_encoder)
+    settings = Settings.for_data_dir(tmp_path)
+
+    _load_clip_text_encoder(settings)
+
+    assert constructed == [(settings.model_dir, load_model_lock(), {"device": "cpu"})]
 
 
 def test_packaged_model_lock_pins_the_expected_model() -> None:

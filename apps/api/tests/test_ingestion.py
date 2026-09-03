@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from concurrent.futures import Future
 from io import BytesIO
 from pathlib import Path
 from urllib.request import Request
@@ -539,50 +538,17 @@ def test_main_skips_the_visual_stage_on_request(
         stages.append(f"visual(force={force})")
         return {"sample_count": 0}
 
-    def fake_start_model_download(_data_dir: Path) -> Future[None]:
-        stages.append("model download started")
-        future: Future[None] = Future()
-        future.set_result(None)
-        return future
-
     monkeypatch.setattr(ingestion_module, "prepare_dataset", fake_prepare_dataset)
     monkeypatch.setattr(
         ingestion_module, "prepare_visual_search", fake_prepare_visual_search
-    )
-    monkeypatch.setattr(
-        ingestion_module, "start_model_download", fake_start_model_download
     )
 
     ingestion_module.main(["--data-dir", str(tmp_path), "--skip-visual"])
     assert stages == ["dataset(force=False)"]
 
-    # Without --skip-visual the model download starts before the dataset stage.
     ingestion_module.main(["--data-dir", str(tmp_path)])
     assert stages == [
         "dataset(force=False)",
-        "model download started",
         "dataset(force=False)",
         "visual(force=False)",
     ]
-
-
-def test_main_reports_a_failed_background_model_download(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def failing_download(_data_dir: Path) -> Future[None]:
-        future: Future[None] = Future()
-        future.set_exception(ValueError("Checksum verification failed for weights"))
-        return future
-
-    monkeypatch.setattr(
-        ingestion_module, "prepare_dataset", lambda _d, *, force: {"sample_count": 0}
-    )
-    monkeypatch.setattr(ingestion_module, "start_model_download", failing_download)
-    monkeypatch.setattr(
-        ingestion_module,
-        "prepare_visual_search",
-        lambda *_a, **_k: pytest.fail("visual stage must not run"),
-    )
-
-    with pytest.raises(ValueError, match="Checksum verification failed"):
-        ingestion_module.main(["--data-dir", str(tmp_path)])
