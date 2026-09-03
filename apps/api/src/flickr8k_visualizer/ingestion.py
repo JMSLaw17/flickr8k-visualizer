@@ -9,6 +9,7 @@ import re
 import sqlite3
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,7 +32,11 @@ from .dataset_lock import (
 from .db import connect_database, initialize_database, materialize_duplicate_groups
 from .download import download_verified_file, verify_file
 from .fs import write_atomic
-from .visual_search import invalidate_visual_ready, prepare_visual_search
+from .visual_search import (
+    invalidate_visual_ready,
+    prepare_visual_search,
+    start_model_download,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -300,36 +305,70 @@ def _ingest_shard(
         )
 
     row_count = 0
-    for batch in parquet_file.iter_batches(batch_size=64, columns=SHARD_COLUMNS):
-        for record in batch.to_pylist():
-            _ingest_record(target, record, shard.split)
-            row_count += 1
+    # Encoding thumbnails is the slow part and each image is independent, so
+    # images are written on every core while the database stays on this thread.
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+        for batch in parquet_file.iter_batches(batch_size=64, columns=SHARD_COLUMNS):
+            samples = [_parse_sample(record) for record in batch.to_pylist()]
+            for _ in pool.map(lambda sample: _write_images(target, sample), samples):
+                pass
+            for sample in samples:
+                _insert_sample(target, sample, shard.split)
+            row_count += len(samples)
 
     target.split_counts[shard.split] += row_count
     LOGGER.info("Ingested %s rows from %s", row_count, shard.filename)
     return row_count
 
 
-def _ingest_record(
-    target: _IngestionTarget, record: Mapping[str, object], split: str
-) -> None:
+@dataclass(frozen=True, slots=True)
+class _ParsedSample:
+    image: ImagePayload
+    captions: list[str]
+    content_hash: str
+    sample_id: str
+    metadata: ImageMetadata
+
+
+def _parse_sample(record: Mapping[str, object]) -> _ParsedSample:
     image = parse_image_cell(record.get("image"))
     captions = parse_captions(record)
     if not captions:
         raise ValueError("Sample does not contain a caption")
 
     content_hash = image_content_hash(image.data)
-    sample_id = stable_sample_id(image.source_id, content_hash)
-    metadata = read_image_metadata(image.data)
-
-    original_path = (
-        target.images_dir / content_hash[:2] / f"{content_hash}.{metadata.extension}"
+    return _ParsedSample(
+        image=image,
+        captions=captions,
+        content_hash=content_hash,
+        sample_id=stable_sample_id(image.source_id, content_hash),
+        metadata=read_image_metadata(image.data),
     )
-    thumbnail_path = target.thumbnails_dir / content_hash[:2] / f"{content_hash}.webp"
-    _write_original_image(original_path, image.data, content_hash)
-    _write_thumbnail(thumbnail_path, image.data)
 
-    source_id = image.source_id or f"sha256:{content_hash}"
+
+def _original_path(target: _IngestionTarget, sample: _ParsedSample) -> Path:
+    return (
+        target.images_dir
+        / sample.content_hash[:2]
+        / f"{sample.content_hash}.{sample.metadata.extension}"
+    )
+
+
+def _thumbnail_path(target: _IngestionTarget, sample: _ParsedSample) -> Path:
+    return (
+        target.thumbnails_dir / sample.content_hash[:2] / f"{sample.content_hash}.webp"
+    )
+
+
+def _write_images(target: _IngestionTarget, sample: _ParsedSample) -> None:
+    _write_original_image(
+        _original_path(target, sample), sample.image.data, sample.content_hash
+    )
+    _write_thumbnail(_thumbnail_path(target, sample), sample.image.data)
+
+
+def _insert_sample(target: _IngestionTarget, sample: _ParsedSample, split: str) -> None:
+    source_id = sample.image.source_id or f"sha256:{sample.content_hash}"
     try:
         target.connection.execute(
             """
@@ -339,26 +378,29 @@ def _ingest_record(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                sample_id,
+                sample.sample_id,
                 source_id,
                 split,
-                content_hash,
-                metadata.width,
-                metadata.height,
-                metadata.mime_type,
-                len(image.data),
-                original_path.relative_to(target.data_dir).as_posix(),
-                thumbnail_path.relative_to(target.data_dir).as_posix(),
+                sample.content_hash,
+                sample.metadata.width,
+                sample.metadata.height,
+                sample.metadata.mime_type,
+                len(sample.image.data),
+                _original_path(target, sample).relative_to(target.data_dir).as_posix(),
+                _thumbnail_path(target, sample).relative_to(target.data_dir).as_posix(),
             ),
         )
     except sqlite3.IntegrityError as error:
-        raise ValueError(f"Duplicate stable sample ID: {sample_id}") from error
+        raise ValueError(f"Duplicate stable sample ID: {sample.sample_id}") from error
 
     target.connection.executemany(
         "INSERT INTO captions (sample_id, position, text) VALUES (?, ?, ?)",
-        ((sample_id, position, caption) for position, caption in enumerate(captions)),
+        (
+            (sample.sample_id, position, caption)
+            for position, caption in enumerate(sample.captions)
+        ),
     )
-    target.hash_counts[content_hash] += 1
+    target.hash_counts[sample.content_hash] += 1
 
 
 def _write_original_image(path: Path, data: bytes, expected_hash: str) -> None:
@@ -377,7 +419,9 @@ def _write_thumbnail(path: Path, image_bytes: bytes) -> None:
         thumbnail = ImageOps.exif_transpose(image).convert("RGB")
         thumbnail.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
         encoded = BytesIO()
-        thumbnail.save(encoded, format="WEBP", quality=82, method=6)
+        # The default encoder effort; the slowest setting halves ingestion
+        # speed for thumbnails about 4% smaller.
+        thumbnail.save(encoded, format="WEBP", quality=82, method=4)
     write_atomic(path, encoded.getvalue())
 
 
@@ -499,6 +543,11 @@ def _parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
 def main(arguments: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     options = _parse_args(arguments)
+    # The model depends on nothing the dataset stage produces, so its download
+    # overlaps the shard downloads and ingestion.
+    model_download = (
+        None if options.skip_visual else start_model_download(options.data_dir)
+    )
     manifest = prepare_dataset(options.data_dir, force=options.force)
     LOGGER.info(
         "Prepared %s samples in %s",
@@ -511,6 +560,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
             "to enable visual search"
         )
         return
+    if model_download is not None:
+        model_download.result()
     visual_manifest = prepare_visual_search(options.data_dir, force=options.force)
     LOGGER.info(
         "Visual search index covers %s samples", visual_manifest["sample_count"]

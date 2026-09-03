@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from concurrent.futures import Future
 from io import BytesIO
 from pathlib import Path
+from urllib.request import Request
 
 import pyarrow as pa
 import pyarrow.parquet as parquet
@@ -431,6 +433,97 @@ def test_download_uses_a_sixty_second_timeout(
     assert downloaded_path.read_bytes() == contents
 
 
+def _shard_fixture(contents: bytes) -> tuple[DatasetShard, DatasetLock]:
+    shard = DatasetShard(
+        split="train",
+        repo_path="data/train.parquet",
+        size_bytes=len(contents),
+        sha256=hashlib.sha256(contents).hexdigest(),
+        row_count=1,
+    )
+    lock = DatasetLock(repo_id="fixture/flickr8k", revision="a" * 40, shards=(shard,))
+    return shard, lock
+
+
+class _RangeResponse(BytesIO):
+    status = 206
+
+
+class _FullResponse(BytesIO):
+    status = 200
+
+
+def test_download_resumes_a_truncated_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contents = b"0123456789" * 20
+    shard, dataset_lock = _shard_fixture(contents)
+    ranges: list[str | None] = []
+
+    def fake_urlopen(request: Request, *, timeout: int) -> BytesIO:
+        header = request.get_header("Range")
+        ranges.append(header)
+        if header is None:
+            return BytesIO(contents[:70])  # the connection drops part-way
+        offset = int(header.removeprefix("bytes=").removesuffix("-"))
+        return _RangeResponse(contents[offset:])
+
+    monkeypatch.setattr(download_module, "urlopen", fake_urlopen)
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+
+    downloaded = ingestion_module._download_shard(shard, downloads_dir, dataset_lock)
+
+    assert ranges == [None, "bytes=70-"]
+    assert downloaded.read_bytes() == contents
+
+
+def test_download_restarts_when_the_server_ignores_the_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contents = b"abcdefghij" * 10
+    shard, dataset_lock = _shard_fixture(contents)
+    calls = 0
+
+    def fake_urlopen(_request: Request, *, timeout: int) -> BytesIO:
+        nonlocal calls
+        calls += 1
+        # First a truncated body; then a plain 200 with the whole file.
+        return BytesIO(contents[:30]) if calls == 1 else _FullResponse(contents)
+
+    monkeypatch.setattr(download_module, "urlopen", fake_urlopen)
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+
+    downloaded = ingestion_module._download_shard(shard, downloads_dir, dataset_lock)
+
+    assert calls == 2
+    assert downloaded.read_bytes() == contents
+
+
+def test_download_gives_up_after_repeated_truncation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contents = b"xyz" * 50
+    shard, dataset_lock = _shard_fixture(contents)
+    calls = 0
+
+    def fake_urlopen(_request: Request, *, timeout: int) -> BytesIO:
+        nonlocal calls
+        calls += 1
+        return _RangeResponse(b"")  # nothing ever arrives
+
+    monkeypatch.setattr(download_module, "urlopen", fake_urlopen)
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+
+    with pytest.raises(OSError, match="connection closed"):
+        ingestion_module._download_shard(shard, downloads_dir, dataset_lock)
+
+    assert calls == download_module.DOWNLOAD_ATTEMPTS
+    assert list(downloads_dir.iterdir()) == []
+
+
 def test_main_skips_the_visual_stage_on_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -446,17 +539,50 @@ def test_main_skips_the_visual_stage_on_request(
         stages.append(f"visual(force={force})")
         return {"sample_count": 0}
 
+    def fake_start_model_download(_data_dir: Path) -> Future[None]:
+        stages.append("model download started")
+        future: Future[None] = Future()
+        future.set_result(None)
+        return future
+
     monkeypatch.setattr(ingestion_module, "prepare_dataset", fake_prepare_dataset)
     monkeypatch.setattr(
         ingestion_module, "prepare_visual_search", fake_prepare_visual_search
+    )
+    monkeypatch.setattr(
+        ingestion_module, "start_model_download", fake_start_model_download
     )
 
     ingestion_module.main(["--data-dir", str(tmp_path), "--skip-visual"])
     assert stages == ["dataset(force=False)"]
 
+    # Without --skip-visual the model download starts before the dataset stage.
     ingestion_module.main(["--data-dir", str(tmp_path)])
     assert stages == [
         "dataset(force=False)",
+        "model download started",
         "dataset(force=False)",
         "visual(force=False)",
     ]
+
+
+def test_main_reports_a_failed_background_model_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_download(_data_dir: Path) -> Future[None]:
+        future: Future[None] = Future()
+        future.set_exception(ValueError("Checksum verification failed for weights"))
+        return future
+
+    monkeypatch.setattr(
+        ingestion_module, "prepare_dataset", lambda _d, *, force: {"sample_count": 0}
+    )
+    monkeypatch.setattr(ingestion_module, "start_model_download", failing_download)
+    monkeypatch.setattr(
+        ingestion_module,
+        "prepare_visual_search",
+        lambda *_a, **_k: pytest.fail("visual stage must not run"),
+    )
+
+    with pytest.raises(ValueError, match="Checksum verification failed"):
+        ingestion_module.main(["--data-dir", str(tmp_path)])

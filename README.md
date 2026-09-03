@@ -19,10 +19,9 @@ npm run dev
 
 Then open [http://localhost:5173](http://localhost:5173). `npm run setup`
 installs both the frontend and backend dependencies, `npm run prepare:data`
-downloads and prepares the dataset and model once (about 1.7 GB, a few minutes
-on broadband plus about a minute of embedding on Apple silicon or a few on a
-CPU-only machine), and `npm run dev` starts the API and the frontend. Each
-step is explained under Setup in detail.
+downloads and prepares the dataset and model once (about 1.7 GB; roughly five
+minutes on broadband, nearly all of it download), and `npm run dev` starts the
+API and the frontend. Each step is explained under Setup in detail.
 
 ## Prerequisites
 
@@ -31,7 +30,10 @@ step is explained under Setup in detail.
 - **[uv](https://docs.astral.sh/uv/) 0.5.11 or newer.** It manages the Python
   side entirely: `apps/api/.python-version` pins CPython 3.11, and `uv`
   downloads a managed build if none is installed. CPython 3.11–3.13 are the
-  versions the lock file has wheels for.
+  versions the lock file has wheels for. Install `uv` with `brew install uv`,
+  with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or Linux,
+  or with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+  on Windows; an existing install updates with `uv self update`.
 - **Platform**: Apple silicon macOS 14+, Windows x86-64, or Linux x86-64/ARM64
   with glibc 2.28+, the platforms covered by the locked PyTorch and PyArrow
   wheels. CLIP inference runs on the Apple GPU through Metal when available
@@ -49,9 +51,10 @@ step is explained under Setup in detail.
 
 Three commands, run from the repository root.
 
-**1. Install dependencies.** This runs `npm install` for the frontend and
-`uv sync` for the backend; the two underlying commands can also be run
-directly.
+**1. Install dependencies.** This checks that `uv` is installed, then runs
+`npm install` for the frontend and `uv sync` for the backend; the two
+underlying commands can also be run directly. An unsupported Node version is
+refused up front with the required versions listed.
 
 ```bash
 npm run setup
@@ -62,27 +65,32 @@ stages, and it needs network access only while it runs:
 
 1. **Dataset**: downloads the four Parquet shards (1.1 GB) from the pinned
    dataset revision, verifies their checksums, extracts the original images,
-   creates thumbnails, and builds the SQLite catalog. The Parquet files are
-   removed after ingestion succeeds.
+   creates thumbnails on every CPU core, and builds the SQLite catalog. The
+   Parquet files are removed after ingestion succeeds.
 2. **Visual ranking**: downloads the pinned CLIP model (608 MB) into
    `data/flickr8k/visual-search/model/`, verifies each file, and embeds every
-   image into a local index.
+   image into a local index. The model download starts in the background as
+   soon as the command runs, alongside the dataset stage.
 
 ```bash
 npm run prepare:data
 ```
 
-Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect: the download takes a few minutes on a typical broadband
-connection, and the embedding pass takes about a minute on Apple silicon,
-where it runs on the GPU, or a few minutes on a CPU-only machine, logging
-progress every 512 images. Large downloads log their
-progress and transfer rate at each quarter, so a slow link is visible. If the
-rate is far below your connection's, check for a VPN: some VPN endpoints
-throttle downloads from Hugging Face to a small fraction of the normal speed.
+Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect, measured on a laptop with a broadband connection: about four
+minutes of download for the shards and the model together, half a minute to
+extract the images and build thumbnails, and under a minute of embedding on
+Apple silicon, where it runs on the GPU, or a few minutes on a CPU-only
+machine. Embedding logs progress every 512 images, and large downloads log
+their progress and transfer rate at each quarter, so a slow link is visible.
+If the rate is far below your connection's, check for a VPN: some VPN
+endpoints throttle downloads from Hugging Face to a small fraction of the
+normal speed.
 
-The command is safe to interrupt and rerun. Each finished stage is skipped,
-each verified download is reused, and only the unfinished shard is fetched
-again. If the visual stage fails, browsing still works, ranking requests
+A transfer the server cuts short is resumed automatically, up to five
+attempts. The command is also safe to interrupt and rerun: each finished
+stage is skipped, each verified download is reused, and only the unfinished
+shard is fetched again. If the visual stage fails, browsing still works,
+ranking requests
 return a clear 503, and rerunning retries only that stage. To browse before
 downloading the model, prepare the dataset alone; ranking stays disabled with a
 "Not prepared" hint until the full command runs:

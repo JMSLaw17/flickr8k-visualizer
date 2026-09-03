@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 from collections.abc import Iterator, Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -114,27 +116,42 @@ def _populate_visual_index(
         ).fetchall()
 
         embedded = 0
-        for start in range(0, len(rows), batch_size):
-            batch = rows[start : start + batch_size]
-            images = [_load_rgb_image(data_dir / row["original_path"]) for row in batch]
-            vectors = np.ascontiguousarray(
-                encoder.encode_images(images), dtype=VECTOR_DTYPE
-            )
-            if vectors.shape != (len(batch), dimension):
-                raise ValueError(
-                    f"Encoder returned vectors of shape {vectors.shape}; "
-                    f"expected {(len(batch), dimension)}"
+        batches = [
+            rows[start : start + batch_size]
+            for start in range(0, len(rows), batch_size)
+        ]
+        # Decoding runs on every core and one batch ahead, so the encoder never
+        # waits on the disk.
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+
+            def decode(batch: list[sqlite3.Row]) -> list[Future[Image.Image]]:
+                return [
+                    pool.submit(_load_rgb_image, data_dir / row["original_path"])
+                    for row in batch
+                ]
+
+            pending = decode(batches[0]) if batches else []
+            for index, batch in enumerate(batches):
+                images = [future.result() for future in pending]
+                pending = decode(batches[index + 1]) if index + 1 < len(batches) else []
+                vectors = np.ascontiguousarray(
+                    encoder.encode_images(images), dtype=VECTOR_DTYPE
                 )
-            connection.executemany(
-                "INSERT INTO clip_embeddings (sample_id, vector) VALUES (?, ?)",
-                [
-                    (row["id"], vector.tobytes())
-                    for row, vector in zip(batch, vectors, strict=True)
-                ],
-            )
-            embedded += len(batch)
-            if embedded % 512 == 0 or embedded == len(rows):
-                LOGGER.info("Embedded %s of %s images", embedded, len(rows))
+                if vectors.shape != (len(batch), dimension):
+                    raise ValueError(
+                        f"Encoder returned vectors of shape {vectors.shape}; "
+                        f"expected {(len(batch), dimension)}"
+                    )
+                connection.executemany(
+                    "INSERT INTO clip_embeddings (sample_id, vector) VALUES (?, ?)",
+                    [
+                        (row["id"], vector.tobytes())
+                        for row, vector in zip(batch, vectors, strict=True)
+                    ],
+                )
+                embedded += len(batch)
+                if embedded % 512 == 0 or embedded == len(rows):
+                    LOGGER.info("Embedded %s of %s images", embedded, len(rows))
         return embedded
 
 
@@ -151,6 +168,31 @@ def _load_rgb_image(path: Path) -> Image.Image:
 def invalidate_visual_ready(data_dir: Path) -> None:
     """Unpublish the visual index; call when replacing the base database."""
     Settings.for_data_dir(data_dir).visual_ready_path.unlink(missing_ok=True)
+
+
+def start_model_download(data_dir: Path) -> Future[None]:
+    """Download the pinned model files on a background thread.
+
+    Waiting on the result surfaces any failure; prepare_visual_search verifies
+    the files again and reuses them. The thread is a daemon, so a failure in
+    the dataset stage exits promptly instead of waiting for the model.
+    """
+    from .clip_encoder import download_model_files
+
+    settings = Settings.for_data_dir(data_dir)
+    model_lock = load_model_lock()
+    future: Future[None] = Future()
+
+    def run() -> None:
+        try:
+            download_model_files(model_lock, settings.model_dir)
+        except Exception as error:
+            future.set_exception(error)
+        else:
+            future.set_result(None)
+
+    threading.Thread(target=run, name="model-download", daemon=True).start()
+    return future
 
 
 def prepare_visual_search(data_dir: Path, *, force: bool = False) -> dict[str, Any]:
