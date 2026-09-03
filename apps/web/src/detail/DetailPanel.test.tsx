@@ -66,6 +66,29 @@ function NavigableDetailHarness({
   )
 }
 
+it('marks the captions that satisfy the active caption filters', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      jsonResponse({ ...detail, matched_positions: [1] }),
+    ),
+  )
+
+  render(
+    <DetailPanel
+      sampleId={detail.id}
+      filters={{ term: 'brown' }}
+      onClose={() => undefined}
+      onNavigate={() => undefined}
+    />,
+  )
+
+  await screen.findByRole('heading', { name: detail.source_id })
+  const markers = screen.getAllByText('Matched')
+  expect(markers).toHaveLength(1)
+  expect(markers[0].closest('li')).toHaveTextContent(detail.captions[1])
+})
+
 it('ignores a stale detail failure after navigation aborts its request', async () => {
   let rejectFirst!: (reason: unknown) => void
   const firstResponse = new Promise<Response>((_resolve, reject) => {

@@ -281,7 +281,17 @@ function DetailPanel({
                   <ul className="caption-list">
                     {readySample.captions.map((caption, index) => (
                       <li key={`${caption}-${index}`}>
-                        <HighlightedText text={caption} query={filters.q ?? ''} />
+                        <HighlightedText
+                          text={caption}
+                          query={filters.q ?? filters.term ?? ''}
+                        />
+                        {readySample.matched_positions.includes(index) && (
+                          <>
+                            {/* Non-breaking, so the pill never wraps alone. */}
+                            {'\u00a0'}
+                            <span className="caption-match">Matched</span>
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>

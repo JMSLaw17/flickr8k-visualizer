@@ -6,10 +6,14 @@ After preparation, the running application does not contact Hugging Face or any 
 
 ## Features
 
-- **Browse**: exact caption search across all five captions, with matching
+- **Browse**: exact caption search across all five captions with matching
   text highlighted on the cards and in the detail drawer, a paginated
   thumbnail gallery with split filtering, and a detail drawer showing every
-  caption and the stored image metadata. Each card shows the split, the source
+  caption and the stored image metadata. While a phrase or exact-term filter
+  is active, each card lists up to two captions containing it, with the
+  text highlighted, and the drawer marks them; with only a caption-length
+  filter, the captions in range are listed and marked instead. Each card
+  shows the split, the source
   filename, and a duplicate marker when the image is byte-identical to another
   sample. Every active filter, including ranges chosen from Overview charts,
   appears as a removable chip. Gallery state and open samples have direct,

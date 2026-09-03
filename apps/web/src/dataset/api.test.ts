@@ -28,6 +28,7 @@ const detail: SampleDetail = {
   file_size_bytes: 42_000,
   image_url: '/media/images/123456789.jpg',
   captions: ['A dog runs through a field.'],
+  matched_positions: [],
   previous_id: 'sample-0',
   next_id: 'sample-2',
 }

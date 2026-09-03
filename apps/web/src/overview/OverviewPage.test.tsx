@@ -84,6 +84,7 @@ const memberDetail: SampleDetail = {
   image_url: '/media/images/dup-1.jpg',
   thumbnail_url: '/media/thumbnails/dup-1.webp',
   captions: ['Two dogs on a beach.'],
+  matched_positions: [],
   previous_id: null,
   next_id: null,
   similarity: null,

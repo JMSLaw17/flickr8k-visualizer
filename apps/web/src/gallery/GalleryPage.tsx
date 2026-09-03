@@ -210,7 +210,11 @@ function GalleryPage() {
         <>
           <div className="gallery-grid">
             {page.items.map((sample) => (
-              <SampleCard key={sample.id} sample={sample} query={committedQuery} />
+              <SampleCard
+                key={sample.id}
+                sample={sample}
+                query={committedQuery || filters.term || ''}
+              />
             ))}
           </div>
 

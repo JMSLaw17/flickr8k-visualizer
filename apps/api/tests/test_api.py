@@ -212,6 +212,7 @@ def test_gets_one_sample(client: TestClient) -> None:
             "Literal 100x match.",
             "A woman walks.",
         ],
+        "matched_positions": [],
         "previous_id": "sample-a",
         "next_id": "sample-c",
         "similarity": None,
@@ -712,6 +713,76 @@ def overview_client(tmp_path: Path) -> TestClient:
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        (
+            {"term": "dog"},
+            {"dup-a1": ["A brown dog runs ."], "dup-a2": ["Dog splashing in water"]},
+        ),
+        (
+            {"min_words": 3, "max_words": 4},
+            {"solo-b": ["Two dogs run", "A  woman walks"]},
+        ),
+        # Text filters decide what is shown; the length filter only alone.
+        (
+            {"q": "woman", "min_words": 5, "max_words": 6},
+            {"dup-a1": ["A\tman watches a woman"]},
+        ),
+    ],
+)
+def test_lists_captions_matching_the_text_filters_or_else_the_length(
+    overview_client: TestClient,
+    params: dict[str, object],
+    expected: dict[str, list[str]],
+) -> None:
+    response = overview_client.get("/api/samples", params=params)
+
+    assert response.status_code == 200
+    assert {
+        item["id"]: item["matched_captions"] for item in response.json()["items"]
+    } == expected
+
+
+def test_matched_captions_never_empty_for_a_listed_sample(client: TestClient) -> None:
+    # sample-b qualifies through different captions for the two filters. The
+    # phrase match is shown, since that is what highlighting can point at.
+    listing = client.get("/api/samples", params={"q": "common", "max_words": 3})
+    detail = client.get("/api/samples/sample-b", params={"q": "common", "max_words": 3})
+
+    assert [item["id"] for item in listing.json()["items"]] == ["sample-b"]
+    assert listing.json()["items"][0]["matched_captions"] == [
+        "Common under_score phrase.",
+    ]
+    assert detail.json()["matched_positions"] == [2]
+
+
+def test_gets_one_sample_with_the_captions_matching_its_filters(
+    overview_client: TestClient,
+) -> None:
+    scoped = overview_client.get("/api/samples/dup-a1", params={"term": "dog"})
+    plain = overview_client.get("/api/samples/dup-a1")
+
+    assert scoped.status_code == 200
+    assert scoped.json()["matched_positions"] == [0]
+    assert plain.json()["matched_positions"] == []
+
+
+def test_detail_outside_filters_reports_no_matched_captions(
+    overview_client: TestClient,
+) -> None:
+    # dup-a2 has a "dog" caption but is in the test split, so the train scope
+    # excludes it: no neighbors and no matches, like any out-of-scope sample.
+    response = overview_client.get(
+        "/api/samples/dup-a2", params={"split": "train", "term": "dog"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched_positions"] == []
+    assert (body["previous_id"], body["next_id"]) == (None, None)
 
 
 def test_lists_samples_flag_exact_duplicates(overview_client: TestClient) -> None:

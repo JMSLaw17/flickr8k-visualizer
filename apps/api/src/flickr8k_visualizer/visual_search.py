@@ -301,7 +301,7 @@ def rank_samples(
     with _visual_connection(database_path) as connection:
         ranked = _rank_filtered_samples(connection, filters, query_vector)
         records = _load_page_records(
-            connection, ranked[offset : offset + limit], query=filters.q
+            connection, ranked[offset : offset + limit], filters=filters
         )
 
     return len(ranked), records
@@ -411,10 +411,10 @@ def _load_page_records(
     connection: sqlite3.Connection,
     page: list[tuple[str, float]],
     *,
-    query: str | None,
+    filters: SampleFilters,
 ) -> list[dict[str, Any]]:
     records = load_summary_records(
-        connection, [sample_id for sample_id, _ in page], query=query
+        connection, [sample_id for sample_id, _ in page], filters=filters
     )
     return [
         {**record, "similarity": similarity}

@@ -26,6 +26,7 @@ export const detail: SampleDetail = {
     'A playful dog runs through a meadow.',
     'An animal is sprinting outdoors.',
   ],
+  matched_positions: [],
   previous_id: null,
   next_id: null,
 }

@@ -4,15 +4,20 @@ import SampleLink from '../detail/SampleLink'
 import DatasetImage from '../shared/DatasetImage'
 import HighlightedText from '../shared/HighlightedText'
 
+/** A length filter can match most captions; keep cards scannable. */
+const MAX_MATCHED_CAPTIONS = 2
+
 interface SampleCardProps {
   sample: SampleSummary
+  /** Text to highlight within matched captions: the phrase or exact term. */
   query?: string
 }
 
 function SampleCard({ sample, query = '' }: SampleCardProps) {
   const caption = sample.caption || 'No caption available'
-  const matchedCaptions = query ? sample.matched_captions : []
-  const accessibleCaption = matchedCaptions[0] ?? caption
+  const shownMatches = sample.matched_captions.slice(0, MAX_MATCHED_CAPTIONS)
+  const hiddenMatches = sample.matched_captions.length - shownMatches.length
+  const accessibleCaption = shownMatches[0] ?? caption
 
   return (
     <article className="sample-card">
@@ -26,15 +31,18 @@ function SampleCard({ sample, query = '' }: SampleCardProps) {
         </div>
       </div>
       <div className="sample-card__body">
-        {matchedCaptions.length > 0 ? (
+        {shownMatches.length > 0 ? (
           <div className="sample-card__matches">
             <span className="sample-card__matches-label">Matched captions</span>
             <ul>
-              {matchedCaptions.map((matchedCaption, index) => (
+              {shownMatches.map((matchedCaption, index) => (
                 <li key={`${matchedCaption}-${index}`}>
                   <HighlightedText text={matchedCaption} query={query} />
                 </li>
               ))}
+              {hiddenMatches > 0 && (
+                <li className="sample-card__more">+{hiddenMatches} more matched</li>
+              )}
             </ul>
           </div>
         ) : (

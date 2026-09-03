@@ -101,7 +101,7 @@ it('composes caption and numeric filters with ranking through pagination', async
   )
   expect(screen.getByText('Caption search: “snow”')).toBeInTheDocument()
   expect(screen.getByText('Exact term: “dog”')).toBeInTheDocument()
-  expect(screen.getByText('Caption length: 9+ tokens')).toBeInTheDocument()
+  expect(screen.getByText('Has a caption of 9+ tokens')).toBeInTheDocument()
   expect(screen.getByText('Ranked by: “a dog jumping”')).toBeInTheDocument()
   expect(
     screen.getByText(

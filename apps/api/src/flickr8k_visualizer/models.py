@@ -17,6 +17,8 @@ class SampleSummary(BaseModel):
     height: int
     thumbnail_url: str
     caption: str | None
+    # Captions containing the searched phrase or exact term; with only a
+    # length filter, those in range. Empty without a caption-level filter.
     matched_captions: list[str]
     # Byte-identical to at least one other sample in the dataset.
     duplicate: bool
@@ -36,6 +38,9 @@ class SampleDetail(BaseModel):
     image_url: str
     thumbnail_url: str
     captions: list[str]
+    # Positions in captions of those shown as matches for the active caption
+    # filters; empty without one, or when the sample is outside the filters.
+    matched_positions: list[int]
     # Neighbors follow ranked order when a rank context is given, stable-ID
     # order otherwise; similarity is null without a rank context.
     previous_id: str | None

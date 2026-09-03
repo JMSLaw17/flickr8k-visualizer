@@ -86,6 +86,57 @@ def materialize_duplicate_groups(connection: sqlite3.Connection) -> int:
     return connection.execute("SELECT COUNT(*) FROM duplicate_groups").fetchone()[0]
 
 
+# A caption predicate is SQL over one `captions` row plus its parameters.
+CaptionPredicate = tuple[str, list[object]]
+
+
+def _text_caption_predicates(filters: SampleFilters) -> list[CaptionPredicate]:
+    """The exact-term and phrase conditions, one per active filter."""
+    predicates: list[CaptionPredicate] = []
+    if filters.term is not None:
+        predicates.append(("caption_has_term(captions.text, ?)", [filters.term]))
+    if filters.q is not None:
+        predicates.append(("caption_matches_query(captions.text, ?)", [filters.q]))
+    return predicates
+
+
+def _length_caption_predicate(filters: SampleFilters) -> list[CaptionPredicate]:
+    """The caption-length condition, when either bound is set."""
+    bounds = [
+        (f"{CAPTION_TOKEN_COUNT_SQL} >= ?", filters.min_words),
+        (f"{CAPTION_TOKEN_COUNT_SQL} < ?", filters.max_words),
+    ]
+    active = [(sql, bound) for sql, bound in bounds if bound is not None]
+    if not active:
+        return []
+    return [(" AND ".join(sql for sql, _ in active), [bound for _, bound in active])]
+
+
+def _caption_predicates(filters: SampleFilters) -> list[CaptionPredicate]:
+    """Every caption-level condition; a sample matches when each holds for
+    at least one of its captions, not necessarily the same one."""
+    return [*_text_caption_predicates(filters), *_length_caption_predicate(filters)]
+
+
+def _matched_caption_predicates(filters: SampleFilters) -> list[CaptionPredicate]:
+    """Conditions a caption may satisfy (any of them) to be shown as a match.
+
+    Text filters decide what is shown, since they are what highlighting can
+    point at; the length filter only when it is the sole caption filter.
+    """
+    return _text_caption_predicates(filters) or _length_caption_predicate(filters)
+
+
+def _any_of(predicates: list[CaptionPredicate]) -> CaptionPredicate:
+    """OR the predicates into one condition; `0` when there are none."""
+    if not predicates:
+        return ("0", [])
+    return (
+        " OR ".join(f"({condition})" for condition, _ in predicates),
+        [value for _, values in predicates for value in values],
+    )
+
+
 def filter_clauses(filters: SampleFilters) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     parameters: list[object] = []
@@ -94,32 +145,12 @@ def filter_clauses(filters: SampleFilters) -> tuple[list[str], list[object]]:
         clauses.append("split = ?")
         parameters.append(filters.split)
 
-    if filters.term is not None:
+    for condition, values in _caption_predicates(filters):
         clauses.append(
             "EXISTS (SELECT 1 FROM captions WHERE captions.sample_id = samples.id"
-            " AND caption_has_term(captions.text, ?))"
+            f" AND {condition})"
         )
-        parameters.append(filters.term)
-
-    if filters.q is not None:
-        clauses.append(
-            "EXISTS (SELECT 1 FROM captions WHERE captions.sample_id = samples.id"
-            " AND caption_matches_query(captions.text, ?))"
-        )
-        parameters.append(filters.q)
-
-    word_bounds = [
-        (f"{CAPTION_TOKEN_COUNT_SQL} >= ?", filters.min_words),
-        (f"{CAPTION_TOKEN_COUNT_SQL} < ?", filters.max_words),
-    ]
-    word_conditions = [(sql, bound) for sql, bound in word_bounds if bound is not None]
-    if word_conditions:
-        conditions = " AND ".join(sql for sql, _ in word_conditions)
-        clauses.append(
-            "EXISTS (SELECT 1 FROM captions WHERE captions.sample_id = samples.id"
-            f" AND {conditions})"
-        )
-        parameters.extend(bound for _, bound in word_conditions)
+        parameters.extend(values)
 
     for column, low, high in (
         ("width", filters.min_width, filters.max_width),
@@ -166,12 +197,12 @@ def load_summary_records(
     connection: sqlite3.Connection,
     sample_ids: list[str],
     *,
-    query: str | None = None,
+    filters: SampleFilters,
 ) -> list[dict[str, Any]]:
     """Summary records for the given IDs, returned in the given order.
 
-    matched_captions is populated only when a caption query is given,
-    matching list_samples.
+    matched_captions is populated only while a caption-level filter is
+    active, matching list_samples.
     """
     if not sample_ids:
         return []
@@ -181,11 +212,7 @@ def load_summary_records(
         f"{SAMPLE_SUMMARY_SELECT} WHERE id IN ({placeholders})", sample_ids
     ).fetchall()
     records_by_id = {row["id"]: dict(row) for row in rows}
-    matched_captions: defaultdict[str, list[str]] = (
-        _load_captions(connection, sample_ids, query=query)
-        if query is not None
-        else defaultdict(list)
-    )
+    matched_captions = _load_matched_captions(connection, sample_ids, filters)
     return [
         {**records_by_id[sample_id], "matched_captions": matched_captions[sample_id]}
         for sample_id in sample_ids
@@ -218,13 +245,9 @@ def list_samples(
                 (*parameters, limit, offset),
             ).fetchall()
             records = [dict(row) for row in rows]
-            matched_captions: defaultdict[str, list[str]] = defaultdict(list)
-            if filters.q is not None:
-                matched_captions = _load_captions(
-                    connection,
-                    [record["id"] for record in records],
-                    query=filters.q,
-                )
+            matched_captions = _load_matched_captions(
+                connection, [record["id"] for record in records], filters
+            )
     except sqlite3.Error as error:
         raise DatabaseUnavailableError("Dataset database is not ready") from error
 
@@ -254,32 +277,63 @@ def get_sample(
             if row is None:
                 return None
 
-            captions = _load_captions(connection, [sample_id])
-            previous_id, next_id = _sample_neighbors(connection, sample_id, filters)
+            # A sample outside the filters gets no scope-relative information:
+            # neither neighbors nor matched captions.
+            clauses, parameters = filter_clauses(filters)
+            in_scope = _sample_in_scope(connection, sample_id, clauses, parameters)
+            matched, matched_parameters = _any_of(
+                _matched_caption_predicates(filters) if in_scope else []
+            )
+            caption_rows = connection.execute(
+                f"""
+                SELECT text, ({matched}) AS matched
+                FROM captions
+                WHERE sample_id = ?
+                ORDER BY position
+                """,
+                (*matched_parameters, sample_id),
+            ).fetchall()
+            previous_id, next_id = (
+                _sample_neighbors(connection, sample_id, clauses, parameters)
+                if in_scope
+                else (None, None)
+            )
     except sqlite3.Error as error:
         raise DatabaseUnavailableError("Dataset database is not ready") from error
 
     return {
         **dict(row),
-        "captions": captions[sample_id],
+        "captions": [caption["text"] for caption in caption_rows],
+        "matched_positions": [
+            position
+            for position, caption in enumerate(caption_rows)
+            if caption["matched"]
+        ],
         "previous_id": previous_id,
         "next_id": next_id,
     }
 
 
-def _sample_neighbors(
+def _sample_in_scope(
     connection: sqlite3.Connection,
     sample_id: str,
-    filters: SampleFilters,
-) -> tuple[str | None, str | None]:
-    clauses, parameters = filter_clauses(filters)
-    matching_sample = connection.execute(
+    clauses: list[str],
+    parameters: list[object],
+) -> bool:
+    row = connection.execute(
         f"SELECT 1 FROM samples{compose_where_clause(clauses, 'id = ?')}",
         (*parameters, sample_id),
     ).fetchone()
-    if matching_sample is None:
-        return None, None
+    return row is not None
 
+
+def _sample_neighbors(
+    connection: sqlite3.Connection,
+    sample_id: str,
+    clauses: list[str],
+    parameters: list[object],
+) -> tuple[str | None, str | None]:
+    """Stable-ID neighbors within the filter clauses; the sample must be in scope."""
     previous = connection.execute(
         f"""
         SELECT id
@@ -399,32 +453,27 @@ def _value_counts(
     return Counter({row[0]: row[1] for row in connection.execute(query, parameters)})
 
 
-def _load_captions(
+def _load_matched_captions(
     connection: sqlite3.Connection,
     sample_ids: list[str],
-    *,
-    query: str | None = None,
+    filters: SampleFilters,
 ) -> defaultdict[str, list[str]]:
+    """Captions to show as matches per sample; empty without a caption filter."""
     captions: defaultdict[str, list[str]] = defaultdict(list)
-    if not sample_ids:
+    predicates = _matched_caption_predicates(filters)
+    if not predicates or not sample_ids:
         return captions
 
     placeholders = ", ".join("?" for _ in sample_ids)
-    query_clause = ""
-    parameters: list[object] = [*sample_ids]
-    if query is not None:
-        query_clause = " AND caption_matches_query(text, ?)"
-        parameters.append(query)
-
+    matched, matched_parameters = _any_of(predicates)
     rows = connection.execute(
         f"""
         SELECT sample_id, text
         FROM captions
-        WHERE sample_id IN ({placeholders})
-          {query_clause}
+        WHERE sample_id IN ({placeholders}) AND ({matched})
         ORDER BY sample_id, position
         """,
-        parameters,
+        [*sample_ids, *matched_parameters],
     ).fetchall()
     for row in rows:
         captions[row["sample_id"]].append(row["text"])

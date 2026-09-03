@@ -148,8 +148,10 @@ export function filterChips(filters: SampleFilters): FilterChip[] {
     chips.push({ label: `Exact term: “${filters.term}”`, keys: ['term'] })
   }
 
+  const lengthLabel = captionLengthLabel(filters.min_words, filters.max_words)
+  if (lengthLabel) chips.push({ label: lengthLabel, keys: ['min_words', 'max_words'] })
+
   const ranges: [string, NumericFilterKey, NumericFilterKey, string, boolean][] = [
-    ['Caption length', 'min_words', 'max_words', ' tokens', true],
     ['Width', 'min_width', 'max_width', ' px', true],
     ['Height', 'min_height', 'max_height', ' px', true],
     ['Aspect ratio', 'min_ratio', 'max_ratio', '', false],
@@ -160,6 +162,16 @@ export function filterChips(filters: SampleFilters): FilterChip[] {
   }
 
   return chips
+}
+
+/** The length filter is per photo: any one of its captions in range qualifies. */
+function captionLengthLabel(min: number | undefined, max: number | undefined): string | null {
+  if (min === undefined && max === undefined) return null
+  if (min === undefined) return `Has a caption under ${max} tokens`
+  if (max === undefined) return `Has a caption of ${min}+ tokens`
+  const last = max - 1
+  if (last === min) return `Has a caption of ${min} ${min === 1 ? 'token' : 'tokens'}`
+  return `Has a caption of ${min}–${last} tokens`
 }
 
 function describeRange(

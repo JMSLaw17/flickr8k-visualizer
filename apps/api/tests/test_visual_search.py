@@ -381,6 +381,17 @@ def test_health_reports_visual_ranking_readiness(visual_settings: Settings) -> N
     assert stale.json() == {"status": "ok", "visual_ranking_ready": False}
 
 
+def test_rank_keeps_matches_for_the_term_filter(visual_settings: Settings) -> None:
+    with _make_client(visual_settings) as client:
+        response = client.get("/api/samples", params={"rank": "up", "term": "first"})
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [(item["id"], item["matched_captions"]) for item in items] == [
+        ("sample-a", ["First caption of sample a."]),
+    ]
+
+
 def test_rank_returns_ordinary_captions_without_matches(
     visual_settings: Settings,
 ) -> None:

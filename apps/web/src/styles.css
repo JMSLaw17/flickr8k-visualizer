@@ -382,6 +382,13 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.sample-card__more {
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
 .sample-card__matches mark {
   padding: 0 2px;
   border-radius: 3px;
@@ -1055,9 +1062,16 @@ a.histogram__hit:hover .histogram__bar {
   list-style: none;
 }
 
+/* Two columns filled top to bottom, so the ranking reads down then across. */
 .bar-list--columns {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: block;
+  columns: 2;
   column-gap: 34px;
+}
+
+.bar-list--columns li {
+  padding: 3.5px 0;
+  break-inside: avoid;
 }
 
 .bar-list__row {
@@ -1261,7 +1275,8 @@ a.histogram__hit:hover .histogram__bar {
 }
 
 .cross-split-badge,
-.duplicate-badge {
+.duplicate-badge,
+.caption-match {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -1273,6 +1288,16 @@ a.histogram__hit:hover .histogram__bar {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* A matched caption in the drawer: the shared pill, inline in serif text. */
+.caption-match {
+  margin-left: 4px;
+  min-height: 20px;
+  background: #ede8f6;
+  color: var(--accent-strong);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  vertical-align: middle;
 }
 
 .duplicate-group__title {
@@ -1377,9 +1402,12 @@ a.histogram__hit:hover .histogram__bar {
   }
 
   .overview-grid,
-  .bar-list--columns,
   .quality-tiles {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bar-list--columns {
+    columns: 1;
   }
 }
 

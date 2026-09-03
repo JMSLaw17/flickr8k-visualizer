@@ -306,6 +306,7 @@ def _to_detail(record: dict[str, Any]) -> SampleDetail:
         image_url=_media_url(record["original_path"], "images"),
         thumbnail_url=_media_url(record["thumbnail_path"], "thumbnails"),
         captions=record["captions"],
+        matched_positions=record["matched_positions"],
         previous_id=record["previous_id"],
         next_id=record["next_id"],
         similarity=record.get("similarity"),

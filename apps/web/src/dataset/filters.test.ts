@@ -118,7 +118,7 @@ describe('filterChips', () => {
       { label: 'Split: Train', keys: ['split'] },
       { label: 'Caption search: “green field”', keys: ['q'] },
       { label: 'Exact term: “dog”', keys: ['term'] },
-      { label: 'Caption length: 9 tokens', keys: ['min_words', 'max_words'] },
+      { label: 'Has a caption of 9 tokens', keys: ['min_words', 'max_words'] },
       { label: 'Width: 450–499 px', keys: ['min_width', 'max_width'] },
       { label: 'Aspect ratio: 1.25–1.5', keys: ['min_ratio', 'max_ratio'] },
     ])
@@ -126,7 +126,13 @@ describe('filterChips', () => {
 
   it('describes open-ended and upper-bounded ranges', () => {
     expect(filterChips({ min_words: 30 })).toEqual([
-      { label: 'Caption length: 30+ tokens', keys: ['min_words', 'max_words'] },
+      { label: 'Has a caption of 30+ tokens', keys: ['min_words', 'max_words'] },
+    ])
+    expect(filterChips({ max_words: 9 })).toEqual([
+      { label: 'Has a caption under 9 tokens', keys: ['min_words', 'max_words'] },
+    ])
+    expect(filterChips({ min_words: 1, max_words: 2 })).toEqual([
+      { label: 'Has a caption of 1 token', keys: ['min_words', 'max_words'] },
     ])
     expect(filterChips({ max_height: 200 })).toEqual([
       { label: 'Height: under 200 px', keys: ['min_height', 'max_height'] },

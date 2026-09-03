@@ -8,6 +8,10 @@ export interface SampleSummary {
   height: number
   thumbnail_url: string
   caption: string | null
+  /**
+   * Captions containing the searched phrase or exact term; with only a
+   * length filter, those in range. Empty without a caption-level filter.
+   */
   matched_captions: string[]
   /** Byte-identical to at least one other sample in the dataset. */
   duplicate: boolean
@@ -27,6 +31,8 @@ export interface SampleDetail {
   image_url: string
   thumbnail_url: string
   captions: string[]
+  /** Positions in captions shown as matches; empty without a caption filter. */
+  matched_positions: number[]
   /** Neighbors follow ranked order when a rank context is given. */
   previous_id: string | null
   next_id: string | null
