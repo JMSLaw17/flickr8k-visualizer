@@ -11,7 +11,7 @@ From a fresh clone, with Node 24 and `uv` installed (see Prerequisites):
 ```bash
 git clone https://github.com/JMSLaw17/flickr8k-visualizer.git
 cd flickr8k-visualizer
-nvm use
+nvm use            # if you manage Node with nvm
 npm run setup
 npm run prepare:data
 npm run dev
@@ -42,7 +42,8 @@ step is explained under Setup in detail.
   user with the symlink privilege) and clone with
   `git config core.symlinks true`. `datasets/flickr8k.lock.json` and
   `models/clip.lock.json` are symlinks to the packaged copies and check out as
-  plain text files otherwise; the app still works, but one test fails.
+  plain text files otherwise; the app still works, but the tests that compare
+  the tracked and packaged copies fail.
 
 ## Setup in detail
 
@@ -117,12 +118,12 @@ npm run build
   is active, each card lists up to two captions containing it, with the
   text highlighted, and the drawer marks them; with only a caption-length
   filter, the captions in range are listed and marked instead. Each card
-  shows the split, the source
-  filename, and a duplicate marker when the image is byte-identical to another
-  sample. Every active filter, including ranges chosen from Overview charts,
-  appears as a removable chip. Gallery state and open samples have direct,
-  shareable URLs. Without visual ranking, results stay in ascending sample-ID
-  order and previous/next navigation follows the complete filtered result set.
+  shows the split, the source filename, and a duplicate marker when the image
+  is byte-identical to another sample. Every active filter, including ranges
+  chosen from Overview charts, appears as a removable chip. Gallery state and
+  open samples have direct, shareable URLs. Without visual ranking, results
+  stay in ascending sample-ID order and previous/next navigation follows the
+  complete filtered result set.
 - **Visual ranking**: rank every image in the current filter scope by similarity
   to a natural-language description ("a dog running through snow"). Ranking is
   composable with literal caption search, exact-term search, and every other
@@ -187,12 +188,12 @@ the `clip_embeddings` table are absent until the visual stage runs.
 
 The dataset repository, full commit revision, shard paths, byte sizes, SHA-256
 checksums, and expected row counts are pinned in the tracked
-[`datasets/flickr8k.lock.json`](datasets/flickr8k.lock.json). The preparation
-command reads this lock file directly and rejects prepared data that does not
-match it. Updating the dataset therefore requires an explicit lock-file change
-and `--force` when replacing an existing local preparation. Sample IDs use the
-original Flickr filename when present, so they do not depend on Parquet row
-positions.
+[`datasets/flickr8k.lock.json`](datasets/flickr8k.lock.json), a symlink to the
+copy packaged with the API. The preparation command reads that lock file and
+rejects prepared data that does not match it. Updating the dataset therefore
+requires an explicit lock-file change and `--force` when replacing an existing
+local preparation. Sample IDs are the original Flickr filename without its
+extension when present, so they do not depend on Parquet row positions.
 
 `content_sha256` is SHA-256 over the exact encoded bytes embedded in the source Parquet image cell. It is computed while those bytes are already in memory during ingestion, before image decoding or thumbnail generation. The definition is intentionally byte-exact: two differently encoded files with identical decoded pixels are not the same exact-duplicate group.
 
@@ -265,15 +266,18 @@ FLICKR8K_REAL_MODEL=1 npm run test:api -- apps/api/tests/test_visual_smoke.py
 
 ## Configuration
 
-Set `FLICKR8K_DATA_DIR` to use a data directory other than `data/flickr8k`:
+Set `FLICKR8K_DATA_DIR` to use a data directory other than `data/flickr8k`;
+the preparation command also accepts it as `--data-dir`:
 
 ```bash
 FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run prepare:data
 FLICKR8K_DATA_DIR=/absolute/path/to/flickr8k npm run dev
 ```
 
-`FLICKR8K_DEVICE` forces the device CLIP runs on (`cpu`, `mps`, or `cuda`);
-by default the Apple GPU is used when PyTorch can see one, else the CPU.
+`FLICKR8K_DEVICE` forces the device CLIP runs on: `cpu`, `mps`, or `cuda`,
+the last only with a CUDA-enabled PyTorch, which the lock file does not
+install. By default the Apple GPU is used when PyTorch can see one, else the
+CPU.
 `FLICKR8K_DATABASE_PATH` and `FLICKR8K_MANIFEST_PATH` override the two files
 individually, and `FLICKR8K_CORS_ORIGINS` is a comma-separated list of allowed
 frontend origins (default `http://localhost:5173`).
