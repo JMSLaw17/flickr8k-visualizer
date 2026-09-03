@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -11,6 +12,9 @@ LOGGER = logging.getLogger(__name__)
 DOWNLOAD_TIMEOUT_SECONDS = 60
 USER_AGENT = "flickr8k-visualizer/0.1"
 CHUNK_SIZE = 4 * 1024 * 1024
+# Files at least this large log progress at each quarter, with the transfer
+# rate, so a slow link is visible rather than looking like a hang.
+PROGRESS_MIN_BYTES = 50 * 1024 * 1024
 
 
 def verify_file(path: Path, expected_size: int, expected_hash: str) -> None:
@@ -52,8 +56,22 @@ def download_verified_file(
             urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
             partial_path.open("wb") as output,
         ):
+            started = time.monotonic()
+            received = 0
+            step = expected_size // 4
+            next_report = step if expected_size >= PROGRESS_MIN_BYTES else 0
             while chunk := response.read(CHUNK_SIZE):
                 output.write(chunk)
+                received += len(chunk)
+                if next_report and received >= next_report:
+                    elapsed = max(time.monotonic() - started, 1e-6)
+                    LOGGER.info(
+                        "  %s: %d%% at %.1f MB/s",
+                        destination.name,
+                        100 * received // expected_size,
+                        received / elapsed / 1e6,
+                    )
+                    next_report += step
         verify_file(partial_path, expected_size, expected_hash)
         os.replace(partial_path, destination)
     except Exception:

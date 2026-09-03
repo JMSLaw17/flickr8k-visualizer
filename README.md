@@ -64,67 +64,77 @@ move between samples in the detail drawer.
 
 ## Prerequisites
 
-- CPython 3.11–3.14 on Apple silicon macOS 14+, Windows x86-64, or Linux
-  x86-64/ARM64 with glibc 2.28+ (the platforms covered by the locked PyTorch
-  wheels)
-- [uv](https://docs.astral.sh/uv/) 0.5.11 or newer (older releases cannot read
-  the lock file; the requirement is enforced via `tool.uv.required-version`)
-- On Windows, Git symlink support — enable Developer Mode (or run Git as a user
-  with the symlink privilege) and clone with `git config core.symlinks true`.
-  The tracked `datasets/flickr8k.lock.json` and `models/clip.lock.json` are
-  symlinks and check out as plain text files otherwise
-- Node.js 20.19+, 22.13+, or 24+
-- About 4 GB of free disk space while preparing the dataset and the visual
-  ranking model, plus about 1 GB for the installed Python dependencies (CLIP
-  inference is CPU-only, and the lock file pins PyTorch's CPU build on Linux,
-  so no CUDA packages are downloaded)
-
-The repository pins Node 24 in `.nvmrc`. With `nvm`, activate it before installing dependencies:
-
-```bash
-nvm install
-nvm use
-```
+- **Node.js 24** (20.19+ and 22.13+ also work). The repository pins Node 24 in
+  `.nvmrc`; with `nvm`, run `nvm install` then `nvm use` first.
+- **[uv](https://docs.astral.sh/uv/) 0.5.11 or newer.** It manages the Python
+  side entirely: `apps/api/.python-version` pins CPython 3.11, and `uv`
+  downloads a managed build if none is installed. CPython 3.11–3.13 are the
+  versions the lock file has wheels for.
+- **Platform**: Apple silicon macOS 14+, Windows x86-64, or Linux x86-64/ARM64
+  with glibc 2.28+, the platforms covered by the locked PyTorch and PyArrow
+  wheels. CLIP inference is CPU-only; no CUDA packages are downloaded.
+- **Disk**: about 2 GB under `data/flickr8k/` after preparation, roughly
+  4 GB while it runs, plus about 1 GB for the Python dependencies.
+- **On Windows**, Git symlink support: enable Developer Mode (or run Git as a
+  user with the symlink privilege) and clone with
+  `git config core.symlinks true`. `datasets/flickr8k.lock.json` and
+  `models/clip.lock.json` are symlinks to the packaged copies and check out as
+  plain text files otherwise; the app still works, but one test fails.
 
 ## Setup
 
-Install the frontend and backend dependencies:
+Three commands, run from the repository root.
+
+**1. Install dependencies.** This runs `npm install` for the frontend and
+`uv sync` for the backend; the two underlying commands can also be run
+directly.
 
 ```bash
-npm install
-uv sync --project apps/api --extra dev
+npm run setup
 ```
 
-Download and prepare Flickr8k. This runs two stages:
+**2. Download and prepare the dataset.** This is a one-time step with two
+stages, and it needs network access only while it runs:
 
-1. **Dataset**: downloads the four Parquet shards from the pinned dataset
-   revision, verifies their checksums, extracts the original images, creates
-   thumbnails, and builds the SQLite catalog. The downloaded Parquet files are
-   removed only after ingestion succeeds.
-2. **Visual ranking**: downloads the pinned CLIP model (about 608 MB) into
-   `data/flickr8k/visual-search/model/`, verifies each file's checksum, and
-   embeds every image into a local index (a few minutes on CPU).
+1. **Dataset**: downloads the four Parquet shards (1.1 GB) from the pinned
+   dataset revision, verifies their checksums, extracts the original images,
+   creates thumbnails, and builds the SQLite catalog. The Parquet files are
+   removed after ingestion succeeds.
+2. **Visual ranking**: downloads the pinned CLIP model (608 MB) into
+   `data/flickr8k/visual-search/model/`, verifies each file, and embeds every
+   image into a local index.
 
 ```bash
 npm run prepare:data
 ```
 
-Prepared data is stored under `data/flickr8k/` and is intentionally ignored by Git. The command is idempotent: each stage that is already prepared is skipped without downloading anything again. If the visual stage fails (for example, the model download is interrupted), browsing still works, requests with visual ranking return a clear 503, and rerunning the command retries only the visual stage.
+Prepared data lives under `data/flickr8k/`, which Git ignores. What to expect: the download takes a few minutes on a typical broadband
+connection, and the embedding pass takes about five to ten minutes on a recent
+laptop CPU, logging progress every 512 images. Large downloads log their
+progress and transfer rate at each quarter, so a slow link is visible. If the
+rate is far below your connection's, check for a VPN: some VPN endpoints
+throttle downloads from Hugging Face to a small fraction of the normal speed.
 
-To try browsing first without downloading the model, prepare only the dataset;
-visual ranking returns a 503 until the full command runs:
+The command is safe to interrupt and rerun. Each finished stage is skipped,
+each verified download is reused, and only the unfinished shard is fetched
+again. If the visual stage fails, browsing still works, ranking requests
+return a clear 503, and rerunning retries only that stage. To browse before
+downloading the model, prepare the dataset alone; ranking stays disabled with a
+"Not prepared" hint until the full command runs:
 
 ```bash
 npm run prepare:data -- --skip-visual
 ```
 
-Start both development servers:
+**3. Start the app.** This starts the API on port 8000 and the frontend on
+port 5173, which proxies API and media requests to the API.
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The frontend development server proxies API and media requests to FastAPI at `http://localhost:8000`.
+Open [http://localhost:5173](http://localhost:5173). Starting the app before
+preparing the data is fine: the pages explain what to run.
 
 ## Verification
 
