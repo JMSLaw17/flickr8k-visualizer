@@ -30,12 +30,15 @@ from .dataset_lock import (
 )
 from .db import connect_database, initialize_database, materialize_duplicate_groups
 from .download import download_verified_file, verify_file
+from .fs import write_atomic
 from .visual_search import invalidate_visual_ready, prepare_visual_search
 
 LOGGER = logging.getLogger(__name__)
 
 CAPTION_COLUMN = re.compile(r"^caption_(\d+)$")
 THUMBNAIL_SIZE = (480, 480)
+CAPTION_COLUMNS = [f"caption_{index}" for index in range(5)]
+SHARD_COLUMNS = ["image", *CAPTION_COLUMNS]
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,10 +126,11 @@ def read_image_metadata(image_bytes: bytes) -> ImageMetadata:
 
 def prepare_dataset(data_dir: Path, *, force: bool = False) -> dict[str, Any]:
     dataset_lock = load_dataset_lock()
-    data_dir = data_dir.expanduser().resolve()
-    manifest_path = data_dir / "manifest.json"
-    database_path = data_dir / "flickr8k.sqlite3"
-    ready_path = data_dir / ".ready"
+    settings = Settings.for_data_dir(data_dir)
+    data_dir = settings.data_dir
+    manifest_path = settings.manifest_path
+    database_path = settings.database_path
+    ready_path = settings.ready_path
     downloads_dir = data_dir / "downloads"
 
     try:
@@ -182,19 +186,16 @@ def ingest_downloaded_shards(
     revision: str,
     delete_parquet: bool,
 ) -> dict[str, Any]:
-    data_dir = data_dir.expanduser().resolve()
+    settings = Settings.for_data_dir(data_dir)
+    data_dir = settings.data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
-    images_dir = data_dir / "images"
-    thumbnails_dir = data_dir / "thumbnails"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
     for shard, shard_path in shard_paths.items():
         verify_file(shard_path, shard.size_bytes, shard.sha256)
 
-    database_path = data_dir / "flickr8k.sqlite3"
-    manifest_path = data_dir / "manifest.json"
-    ready_path = data_dir / ".ready"
+    database_path = settings.database_path
+    manifest_path = settings.manifest_path
+    ready_path = settings.ready_path
     temporary_database_path = data_dir / ".flickr8k.sqlite3.ingesting"
     temporary_manifest_path = data_dir / ".manifest.json.ingesting"
     temporary_database_path.unlink(missing_ok=True)
@@ -208,19 +209,13 @@ def ingest_downloaded_shards(
 
     try:
         connection = connect_database(temporary_database_path)
+        target = _IngestionTarget(data_dir, connection, split_counts, hash_counts)
+        target.images_dir.mkdir(parents=True, exist_ok=True)
+        target.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         try:
             with connection:
                 for shard, shard_path in shard_paths.items():
-                    row_count = _ingest_shard(
-                        connection,
-                        shard,
-                        shard_path,
-                        data_dir,
-                        images_dir,
-                        thumbnails_dir,
-                        split_counts,
-                        hash_counts,
-                    )
+                    row_count = _ingest_shard(target, shard, shard_path)
                     if row_count != shard.row_count:
                         raise ValueError(
                             f"{shard.filename} contains {row_count} rows; "
@@ -252,14 +247,17 @@ def ingest_downloaded_shards(
             hash_counts=hash_counts,
             duplicate_group_count=duplicate_group_count,
         )
-        _write_manifest(temporary_manifest_path, manifest)
+        write_atomic(
+            temporary_manifest_path,
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        )
         ready_path.unlink(missing_ok=True)
         # The new database has no clip_embeddings table, so any previously
         # published visual index no longer applies.
         invalidate_visual_ready(data_dir)
         os.replace(temporary_database_path, database_path)
         os.replace(temporary_manifest_path, manifest_path)
-        _write_ready_marker(ready_path, revision)
+        write_atomic(ready_path, f"{revision}\n")
 
         if delete_parquet:
             for shard_path in shard_paths.values():
@@ -273,53 +271,47 @@ def ingest_downloaded_shards(
         raise
 
 
+@dataclass(frozen=True, slots=True)
+class _IngestionTarget:
+    """Where one ingestion run writes, plus its running tallies."""
+
+    data_dir: Path
+    connection: sqlite3.Connection
+    split_counts: Counter[str]
+    hash_counts: Counter[str]
+
+    @property
+    def images_dir(self) -> Path:
+        return self.data_dir / "images"
+
+    @property
+    def thumbnails_dir(self) -> Path:
+        return self.data_dir / "thumbnails"
+
+
 def _ingest_shard(
-    connection: sqlite3.Connection,
-    shard: DatasetShard,
-    shard_path: Path,
-    data_dir: Path,
-    images_dir: Path,
-    thumbnails_dir: Path,
-    split_counts: Counter[str],
-    hash_counts: Counter[str],
+    target: _IngestionTarget, shard: DatasetShard, shard_path: Path
 ) -> int:
     parquet_file = parquet.ParquetFile(shard_path)
-    required_columns = {"image", *(f"caption_{index}" for index in range(5))}
-    available_columns = set(parquet_file.schema_arrow.names)
-    missing_columns = required_columns - available_columns
+    missing_columns = set(SHARD_COLUMNS) - set(parquet_file.schema_arrow.names)
     if missing_columns:
         raise ValueError(
             f"{shard.filename} is missing columns: {sorted(missing_columns)}"
         )
 
     row_count = 0
-    columns = ["image", *(f"caption_{index}" for index in range(5))]
-    for batch in parquet_file.iter_batches(batch_size=64, columns=columns):
+    for batch in parquet_file.iter_batches(batch_size=64, columns=SHARD_COLUMNS):
         for record in batch.to_pylist():
-            _ingest_record(
-                connection,
-                record,
-                shard.split,
-                data_dir,
-                images_dir,
-                thumbnails_dir,
-                hash_counts,
-            )
+            _ingest_record(target, record, shard.split)
             row_count += 1
 
-    split_counts[shard.split] += row_count
+    target.split_counts[shard.split] += row_count
     LOGGER.info("Ingested %s rows from %s", row_count, shard.filename)
     return row_count
 
 
 def _ingest_record(
-    connection: sqlite3.Connection,
-    record: Mapping[str, object],
-    split: str,
-    data_dir: Path,
-    images_dir: Path,
-    thumbnails_dir: Path,
-    hash_counts: Counter[str],
+    target: _IngestionTarget, record: Mapping[str, object], split: str
 ) -> None:
     image = parse_image_cell(record.get("image"))
     captions = parse_captions(record)
@@ -331,15 +323,15 @@ def _ingest_record(
     metadata = read_image_metadata(image.data)
 
     original_path = (
-        images_dir / content_hash[:2] / (f"{content_hash}.{metadata.extension}")
+        target.images_dir / content_hash[:2] / f"{content_hash}.{metadata.extension}"
     )
-    thumbnail_path = thumbnails_dir / content_hash[:2] / f"{content_hash}.webp"
+    thumbnail_path = target.thumbnails_dir / content_hash[:2] / f"{content_hash}.webp"
     _write_original_image(original_path, image.data, content_hash)
     _write_thumbnail(thumbnail_path, image.data)
 
     source_id = image.source_id or f"sha256:{content_hash}"
     try:
-        connection.execute(
+        target.connection.execute(
             """
             INSERT INTO samples (
                 id, source_id, split, content_sha256, width, height,
@@ -355,18 +347,18 @@ def _ingest_record(
                 metadata.height,
                 metadata.mime_type,
                 len(image.data),
-                original_path.relative_to(data_dir).as_posix(),
-                thumbnail_path.relative_to(data_dir).as_posix(),
+                original_path.relative_to(target.data_dir).as_posix(),
+                thumbnail_path.relative_to(target.data_dir).as_posix(),
             ),
         )
     except sqlite3.IntegrityError as error:
         raise ValueError(f"Duplicate stable sample ID: {sample_id}") from error
 
-    connection.executemany(
+    target.connection.executemany(
         "INSERT INTO captions (sample_id, position, text) VALUES (?, ?, ?)",
         ((sample_id, position, caption) for position, caption in enumerate(captions)),
     )
-    hash_counts[content_hash] += 1
+    target.hash_counts[content_hash] += 1
 
 
 def _write_original_image(path: Path, data: bytes, expected_hash: str) -> None:
@@ -374,24 +366,19 @@ def _write_original_image(path: Path, data: bytes, expected_hash: str) -> None:
         if image_content_hash(path.read_bytes()) != expected_hash:
             raise ValueError(f"Existing image has unexpected content: {path}")
         return
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary_path.write_bytes(data)
-    os.replace(temporary_path, path)
+    write_atomic(path, data)
 
 
 def _write_thumbnail(path: Path, image_bytes: bytes) -> None:
     if path.is_file():
         return
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     with Image.open(BytesIO(image_bytes)) as image:
         thumbnail = ImageOps.exif_transpose(image).convert("RGB")
         thumbnail.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
-        thumbnail.save(temporary_path, format="WEBP", quality=82, method=6)
-    os.replace(temporary_path, path)
+        encoded = BytesIO()
+        thumbnail.save(encoded, format="WEBP", quality=82, method=6)
+    write_atomic(path, encoded.getvalue())
 
 
 def _download_shard(
@@ -444,20 +431,6 @@ def _build_manifest(
             for shard in shard_paths
         ],
     }
-
-
-def _write_manifest(path: Path, manifest: Mapping[str, object]) -> None:
-    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    os.replace(temporary_path, path)
-
-
-def _write_ready_marker(path: Path, revision: str) -> None:
-    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary_path.write_text(f"{revision}\n", encoding="utf-8")
-    os.replace(temporary_path, path)
 
 
 def _read_manifest(path: Path) -> dict[str, Any] | None:

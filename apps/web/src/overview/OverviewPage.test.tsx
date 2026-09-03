@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import type { DatasetOverview, SampleDetail } from '../dataset/api'
 import RoutedDetailPanel from '../detail/RoutedDetailPanel'
+import { jsonResponse } from '../test/fixtures'
 import OverviewPage from './OverviewPage'
 
 const overview: DatasetOverview = {
@@ -90,13 +91,6 @@ const memberDetail: SampleDetail = {
   similarity: null,
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
 function renderOverview(initialEntry = '/overview') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -105,11 +99,6 @@ function renderOverview(initialEntry = '/overview') {
     </MemoryRouter>,
   )
 }
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  document.body.style.overflow = ''
-})
 
 it('links chart values to matching gallery pages', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(overview)))

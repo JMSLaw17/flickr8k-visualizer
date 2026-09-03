@@ -2,8 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { galleryPath, parseOrdering, useSampleFilters } from '../dataset/filters'
-import { getRouteMetadata } from '../routes'
-import DetailPanel from './DetailPanel'
+import { getRouteMetadata } from '../shared/routes'
 import {
   clearDrawerParams,
   drawerExitState,
@@ -11,7 +10,8 @@ import {
   isAppOpenedDrawer,
   isDrawerExit,
   isUnscopedDrawer,
-} from './sampleRoute'
+} from '../shared/sampleRoute'
+import DetailPanel from './DetailPanel'
 
 function RoutedDetailPanel() {
   const location = useLocation()

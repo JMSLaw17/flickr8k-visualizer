@@ -36,6 +36,16 @@ class Settings:
         return self.visual_search_dir / ".ready"
 
     @classmethod
+    def for_data_dir(cls, data_dir: Path) -> Settings:
+        """Settings for a data directory; the one place its layout is spelled out."""
+        data_dir = data_dir.expanduser().resolve()
+        return cls(
+            data_dir=data_dir,
+            database_path=data_dir / "flickr8k.sqlite3",
+            manifest_path=data_dir / "manifest.json",
+        )
+
+    @classmethod
     def from_env(cls) -> Settings:
         data_dir = _path_from_env("FLICKR8K_DATA_DIR", DEFAULT_DATA_DIR)
         database_path = _path_from_env(

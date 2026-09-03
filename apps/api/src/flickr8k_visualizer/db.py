@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter, defaultdict
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,22 @@ def connect_database(database_path: Path) -> sqlite3.Connection:
     )
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+@contextmanager
+def open_database(database_path: Path) -> Iterator[sqlite3.Connection]:
+    """Open the prepared database for reading.
+
+    A missing file or any SQLite failure surfaces as DatabaseUnavailableError,
+    which the API reports as "not prepared".
+    """
+    if not database_path.is_file():
+        raise DatabaseUnavailableError("Dataset database is not ready")
+    try:
+        with closing(connect_database(database_path)) as connection:
+            yield connection
+    except sqlite3.Error as error:
+        raise DatabaseUnavailableError("Dataset database is not ready") from error
 
 
 def initialize_database(database_path: Path) -> None:
@@ -226,30 +243,26 @@ def list_samples(
     offset: int,
     filters: SampleFilters,
 ) -> tuple[int, list[dict[str, Any]]]:
-    _require_database(database_path)
     clauses, parameters = filter_clauses(filters)
     where_clause = compose_where_clause(clauses)
 
-    try:
-        with closing(connect_database(database_path)) as connection:
-            total = connection.execute(
-                f"SELECT COUNT(*) FROM samples{where_clause}", parameters
-            ).fetchone()[0]
-            rows = connection.execute(
-                f"""
-                {SAMPLE_SUMMARY_SELECT}
-                {where_clause}
-                ORDER BY id
-                LIMIT ? OFFSET ?
-                """,
-                (*parameters, limit, offset),
-            ).fetchall()
-            records = [dict(row) for row in rows]
-            matched_captions = _load_matched_captions(
-                connection, [record["id"] for record in records], filters
-            )
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+    with open_database(database_path) as connection:
+        total = connection.execute(
+            f"SELECT COUNT(*) FROM samples{where_clause}", parameters
+        ).fetchone()[0]
+        rows = connection.execute(
+            f"""
+            {SAMPLE_SUMMARY_SELECT}
+            {where_clause}
+            ORDER BY id
+            LIMIT ? OFFSET ?
+            """,
+            (*parameters, limit, offset),
+        ).fetchall()
+        records = [dict(row) for row in rows]
+        matched_captions = _load_matched_captions(
+            connection, [record["id"] for record in records], filters
+        )
 
     for record in records:
         record["matched_captions"] = matched_captions[record["id"]]
@@ -262,44 +275,40 @@ def get_sample(
     *,
     filters: SampleFilters,
 ) -> dict[str, Any] | None:
-    _require_database(database_path)
-    try:
-        with closing(connect_database(database_path)) as connection:
-            row = connection.execute(
-                """
-                SELECT id, source_id, split, content_sha256, width, height,
-                       mime_type, file_size_bytes, original_path, thumbnail_path
-                FROM samples
-                WHERE id = ?
-                """,
-                (sample_id,),
-            ).fetchone()
-            if row is None:
-                return None
+    with open_database(database_path) as connection:
+        row = connection.execute(
+            """
+            SELECT id, source_id, split, content_sha256, width, height,
+                   mime_type, file_size_bytes, original_path, thumbnail_path
+            FROM samples
+            WHERE id = ?
+            """,
+            (sample_id,),
+        ).fetchone()
+        if row is None:
+            return None
 
-            # A sample outside the filters gets no scope-relative information:
-            # neither neighbors nor matched captions.
-            clauses, parameters = filter_clauses(filters)
-            in_scope = _sample_in_scope(connection, sample_id, clauses, parameters)
-            matched, matched_parameters = _any_of(
-                _matched_caption_predicates(filters) if in_scope else []
-            )
-            caption_rows = connection.execute(
-                f"""
-                SELECT text, ({matched}) AS matched
-                FROM captions
-                WHERE sample_id = ?
-                ORDER BY position
-                """,
-                (*matched_parameters, sample_id),
-            ).fetchall()
-            previous_id, next_id = (
-                _sample_neighbors(connection, sample_id, clauses, parameters)
-                if in_scope
-                else (None, None)
-            )
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+        # A sample outside the filters gets no scope-relative information:
+        # neither neighbors nor matched captions.
+        clauses, parameters = filter_clauses(filters)
+        in_scope = _sample_in_scope(connection, sample_id, clauses, parameters)
+        matched, matched_parameters = _any_of(
+            _matched_caption_predicates(filters) if in_scope else []
+        )
+        caption_rows = connection.execute(
+            f"""
+            SELECT text, ({matched}) AS matched
+            FROM captions
+            WHERE sample_id = ?
+            ORDER BY position
+            """,
+            (*matched_parameters, sample_id),
+        ).fetchall()
+        previous_id, next_id = (
+            _sample_neighbors(connection, sample_id, clauses, parameters)
+            if in_scope
+            else (None, None)
+        )
 
     return {
         **dict(row),
@@ -334,30 +343,21 @@ def _sample_neighbors(
     parameters: list[object],
 ) -> tuple[str | None, str | None]:
     """Stable-ID neighbors within the filter clauses; the sample must be in scope."""
-    previous = connection.execute(
-        f"""
-        SELECT id
-        FROM samples
-        {compose_where_clause(clauses, "id < ?")}
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (*parameters, sample_id),
-    ).fetchone()
-    next_sample = connection.execute(
-        f"""
-        SELECT id
-        FROM samples
-        {compose_where_clause(clauses, "id > ?")}
-        ORDER BY id
-        LIMIT 1
-        """,
-        (*parameters, sample_id),
-    ).fetchone()
-    return (
-        previous["id"] if previous is not None else None,
-        next_sample["id"] if next_sample is not None else None,
-    )
+
+    def neighbor(comparison: str, order: str) -> str | None:
+        row = connection.execute(
+            f"""
+            SELECT id
+            FROM samples
+            {compose_where_clause(clauses, f"id {comparison} ?")}
+            ORDER BY id {order}
+            LIMIT 1
+            """,
+            (*parameters, sample_id),
+        ).fetchone()
+        return row["id"] if row is not None else None
+
+    return neighbor("<", "DESC"), neighbor(">", "ASC")
 
 
 def get_overview_source(
@@ -368,7 +368,6 @@ def get_overview_source(
     The gallery filters scope every count; duplicate members are always
     dataset-wide.
     """
-    _require_database(database_path)
     # The caption predicates call Python functions per row, so they are
     # evaluated once into a temporary scope table that every count joins,
     # instead of once per aggregate query. The split is left out of that
@@ -382,59 +381,55 @@ def get_overview_source(
     captions_in_scope = (
         f"FROM captions JOIN scope ON scope.id = captions.sample_id{split_clause}"
     )
-    try:
-        with closing(connect_database(database_path)) as connection:
-            connection.execute(
-                "CREATE TEMP TABLE scope AS"
-                f" SELECT id, split FROM samples{where_clause}",
-                parameters,
-            )
-            split_counts = _value_counts(
-                connection, "SELECT split, COUNT(*) FROM scope GROUP BY split", []
-            )
-            sample_count = connection.execute(
-                f"SELECT COUNT(*) FROM scope{split_clause}", split_parameters
-            ).fetchone()[0]
-            dimension_counts = {
-                (row[0], row[1]): row[2]
-                for row in connection.execute(
-                    f"SELECT width, height, COUNT(*) {samples_in_scope}"
-                    " GROUP BY width, height",
-                    split_parameters,
-                )
-            }
-            ratio_counts = _value_counts(
-                connection,
-                f"SELECT CAST(width AS REAL) / height AS ratio, COUNT(*)"
-                f" {samples_in_scope} GROUP BY ratio",
+    with open_database(database_path) as connection:
+        connection.execute(
+            f"CREATE TEMP TABLE scope AS SELECT id, split FROM samples{where_clause}",
+            parameters,
+        )
+        split_counts = _value_counts(
+            connection, "SELECT split, COUNT(*) FROM scope GROUP BY split", []
+        )
+        sample_count = connection.execute(
+            f"SELECT COUNT(*) FROM scope{split_clause}", split_parameters
+        ).fetchone()[0]
+        dimension_counts = {
+            (row[0], row[1]): row[2]
+            for row in connection.execute(
+                f"SELECT width, height, COUNT(*) {samples_in_scope}"
+                " GROUP BY width, height",
                 split_parameters,
             )
-            caption_token_counts = _value_counts(
-                connection,
-                f"SELECT {CAPTION_TOKEN_COUNT_SQL} AS tokens, COUNT(*)"
-                f" {captions_in_scope} GROUP BY tokens",
-                split_parameters,
+        }
+        ratio_counts = _value_counts(
+            connection,
+            f"SELECT CAST(width AS REAL) / height AS ratio, COUNT(*)"
+            f" {samples_in_scope} GROUP BY ratio",
+            split_parameters,
+        )
+        caption_token_counts = _value_counts(
+            connection,
+            f"SELECT {CAPTION_TOKEN_COUNT_SQL} AS tokens, COUNT(*)"
+            f" {captions_in_scope} GROUP BY tokens",
+            split_parameters,
+        )
+        captions = [
+            row[0]
+            for row in connection.execute(
+                f"SELECT captions.text {captions_in_scope}", split_parameters
             )
-            captions = [
-                row[0]
-                for row in connection.execute(
-                    f"SELECT captions.text {captions_in_scope}", split_parameters
-                )
-            ]
-            duplicate_members = [
-                dict(row)
-                for row in connection.execute(
-                    """
-                    SELECT samples.content_sha256, samples.id, samples.source_id,
-                           samples.split, samples.thumbnail_path
-                    FROM duplicate_groups
-                    JOIN samples USING (content_sha256)
-                    ORDER BY samples.content_sha256, samples.id
-                    """
-                )
-            ]
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+        ]
+        duplicate_members = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT samples.content_sha256, samples.id, samples.source_id,
+                       samples.split, samples.thumbnail_path
+                FROM duplicate_groups
+                JOIN samples USING (content_sha256)
+                ORDER BY samples.content_sha256, samples.id
+                """
+            )
+        ]
 
     return {
         "sample_count": sample_count,
@@ -478,8 +473,3 @@ def _load_matched_captions(
     for row in rows:
         captions[row["sample_id"]].append(row["text"])
     return captions
-
-
-def _require_database(database_path: Path) -> None:
-    if not database_path.is_file():
-        raise DatabaseUnavailableError("Dataset database is not ready")

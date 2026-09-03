@@ -8,11 +8,12 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 
-import { parseOrdering, sampleFiltersKey, withOrdering } from './dataset/filters'
+import { filterSearchParams } from './dataset/api'
+import { parseOrdering, parseSampleFilters } from './dataset/filters'
 import RoutedDetailPanel from './detail/RoutedDetailPanel'
 import GalleryPage from './gallery/GalleryPage'
 import OverviewPage from './overview/OverviewPage'
-import { getRouteMetadata } from './routes'
+import { getRouteMetadata } from './shared/routes'
 
 function RouteChangeEffects() {
   const { pathname } = useLocation()
@@ -37,10 +38,10 @@ function App() {
   // Both pages keep their filters in the URL, so switching pages keeps the
   // scope. The ranking rides along so a round trip does not lose it, while
   // pagination and the open sample stay page-specific.
-  const scope = withOrdering(
-    new URLSearchParams(sampleFiltersKey(searchParams)),
-    parseOrdering(searchParams),
-  ).toString()
+  const scope = filterSearchParams({
+    ...parseSampleFilters(searchParams),
+    ...parseOrdering(searchParams),
+  }).toString()
 
   return (
     <div className="app-shell">

@@ -1,59 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
-import App from '../../App'
 import type { DatasetOverview, SampleDetail, SampleSummary } from '../../dataset/api'
 import { detail, jsonResponse, pageResponse, summary } from '../fixtures'
-
-function LocationProbe() {
-  const { pathname, search } = useLocation()
-  return (
-    <span data-testid="location" hidden>
-      {pathname}
-      {search}
-    </span>
-  )
-}
-
-function HistoryControls() {
-  const navigate = useNavigate()
-  return (
-    <>
-      <button type="button" onClick={() => navigate(-1)}>
-        Test back
-      </button>
-      <button type="button" onClick={() => navigate(1)}>
-        Test forward
-      </button>
-    </>
-  )
-}
-
-function renderApp(
-  initialEntry = '/',
-  { historyControls = false }: { historyControls?: boolean } = {},
-) {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <App />
-      <LocationProbe />
-      {historyControls && <HistoryControls />}
-    </MemoryRouter>,
-  )
-}
-
-function currentLocation(): string {
-  return screen.getByTestId('location').textContent ?? ''
-}
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  document.body.style.overflow = ''
-  document.title = 'Flickr8k Explorer'
-})
+import { currentLocation, renderApp } from '../render'
 
 it('shows every caption and the original at its exact dimensions', async () => {
   let resolveDetail!: (response: Response) => void

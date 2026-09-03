@@ -78,25 +78,34 @@ export const FILTER_KEYS = [
   'max_ratio',
 ] as const satisfies readonly (keyof SampleFilters)[]
 
+/**
+ * How results are ordered: by similarity to a description, by similarity to
+ * a reference image, or by ID when empty. Ordering never changes which
+ * samples match, only their order.
+ */
+export interface Ordering {
+  rank?: string
+  similar_to?: string
+}
+
+export const ORDERING_KEYS = ['rank', 'similar_to'] as const
+
+/** Filters and ordering as search params, in a stable key order. */
 export function filterSearchParams(
-  filters: SampleFilters,
+  filters: SampleFilters & Ordering,
   initial?: URLSearchParams,
 ): URLSearchParams {
   const query = new URLSearchParams(initial)
-  for (const key of FILTER_KEYS) {
+  for (const key of [...FILTER_KEYS, ...ORDERING_KEYS]) {
     const value = filters[key]
-    if (value !== undefined) query.set(key, String(value))
+    if (value !== undefined && value !== '') query.set(key, String(value))
   }
   return query
 }
 
-export interface ListSamplesParams extends SampleFilters {
+export interface ListSamplesParams extends SampleFilters, Ordering {
   limit: number
   offset: number
-  /** Orders results by CLIP similarity to a description; never changes which samples match. */
-  rank?: string
-  /** Orders results by CLIP similarity to a sample's image; that sample leads. */
-  similar_to?: string
 }
 
 export interface DistributionBin {
@@ -205,33 +214,25 @@ function errorDetail(detail: unknown): string | null {
 }
 
 export function listSamples(
-  { limit, offset, rank, similar_to, ...filters }: ListSamplesParams,
+  { limit, offset, ...filters }: ListSamplesParams,
   signal?: AbortSignal,
 ): Promise<SamplePage> {
   const query = filterSearchParams(
     filters,
     new URLSearchParams({ limit: String(limit), offset: String(offset) }),
   )
-  if (rank !== undefined) query.set('rank', rank)
-  if (similar_to !== undefined) query.set('similar_to', similar_to)
-
   return request<SamplePage>(`/api/samples?${query}`, signal)
 }
 
-export interface SampleDetailParams extends SampleFilters {
-  /** Ordering context: enables ranked-order neighbors and the sample's score. */
-  rank?: string
-  similar_to?: string
-}
+/** Filters plus an ordering context: ranked-order neighbors and the sample's score. */
+export type SampleDetailParams = SampleFilters & Ordering
 
 export function getSample(
   id: string,
-  { rank, similar_to, ...filters }: SampleDetailParams = {},
+  filters: SampleDetailParams = {},
   signal?: AbortSignal,
 ): Promise<SampleDetail> {
   const query = filterSearchParams(filters)
-  if (rank !== undefined) query.set('rank', rank)
-  if (similar_to !== undefined) query.set('similar_to', similar_to)
   const suffix = query.size > 0 ? `?${query}` : ''
   return request<SampleDetail>(`/api/samples/${encodeURIComponent(id)}${suffix}`, signal)
 }

@@ -1,26 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
-import App from '../App'
 import type { SampleDetail, SampleSummary } from '../dataset/api'
 import { detail, jsonResponse, pageResponse, summary } from '../test/fixtures'
-
-function renderApp(initialEntry = '/') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <App />
-    </MemoryRouter>,
-  )
-}
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  document.body.style.overflow = ''
-  document.title = 'Flickr8k Explorer'
-})
+import { renderApp } from '../test/render'
 
 it('focuses caption search with slash except from editable controls or an open drawer', async () => {
   const fetchMock = vi.fn((input: RequestInfo | URL) =>

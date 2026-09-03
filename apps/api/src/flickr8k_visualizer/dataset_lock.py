@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from importlib.resources import files
 from pathlib import Path, PurePosixPath
+
+from .lock_common import (
+    is_positive_integer,
+    is_sha256,
+    read_lock_object,
+    require_entries,
+    require_repo_id,
+    require_revision,
+)
 
 LOCK_FILENAME = "flickr8k.lock.json"
 LOCK_SCHEMA_VERSION = 1
@@ -32,39 +39,17 @@ class DatasetLock:
 
 
 def load_dataset_lock(path: Path | None = None) -> DatasetLock:
-    source = path or files("flickr8k_visualizer").joinpath(LOCK_FILENAME)
-    try:
-        value = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"Could not read dataset lock file: {source}") from error
-
-    if not isinstance(value, Mapping):
-        raise RuntimeError(f"Dataset lock must contain a JSON object: {source}")
-    if value.get("schema_version") != LOCK_SCHEMA_VERSION:
-        raise RuntimeError(
-            f"Unsupported dataset lock schema in {source}; "
-            f"expected {LOCK_SCHEMA_VERSION}"
-        )
-
-    repo_id = value.get("repo_id")
-    if not isinstance(repo_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_id
-    ):
-        raise RuntimeError(f"Invalid dataset repository ID in {source}")
-
-    revision = value.get("revision")
-    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise RuntimeError(
-            f"Dataset revision in {source} must be a full 40-character commit SHA"
-        )
-
-    shard_values = value.get("shards")
-    if not isinstance(shard_values, list) or not shard_values:
-        raise RuntimeError(f"Dataset lock must contain at least one shard: {source}")
+    value, source = read_lock_object(
+        path, filename=LOCK_FILENAME, schema_version=LOCK_SCHEMA_VERSION, kind="dataset"
+    )
+    repo_id = require_repo_id(value, source, "dataset")
+    revision = require_revision(value, source, "dataset")
 
     shards: list[DatasetShard] = []
     seen_paths: set[str] = set()
-    for index, shard_value in enumerate(shard_values):
+    for index, shard_value in enumerate(
+        require_entries(value, "shards", source, "dataset", "shard")
+    ):
         if not isinstance(shard_value, Mapping):
             raise RuntimeError(f"Invalid shard {index} in {source}")
 
@@ -80,11 +65,11 @@ def load_dataset_lock(path: Path | None = None) -> DatasetLock:
             raise RuntimeError(f"Invalid path for shard {index} in {source}")
         if repo_path in seen_paths:
             raise RuntimeError(f"Duplicate shard path in {source}: {repo_path}")
-        if not _is_positive_integer(size_bytes):
+        if not is_positive_integer(size_bytes):
             raise RuntimeError(f"Invalid size for shard {index} in {source}")
-        if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        if not is_sha256(sha256):
             raise RuntimeError(f"Invalid SHA-256 for shard {index} in {source}")
-        if not _is_positive_integer(row_count):
+        if not is_positive_integer(row_count):
             raise RuntimeError(f"Invalid row count for shard {index} in {source}")
 
         seen_paths.add(repo_path)
@@ -170,7 +155,3 @@ def _is_safe_repo_path(value: str) -> bool:
         and path.as_posix() == value
         and path.suffix == ".parquet"
     )
-
-
-def _is_positive_integer(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0

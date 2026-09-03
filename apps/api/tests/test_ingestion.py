@@ -13,7 +13,7 @@ from PIL import Image
 
 from flickr8k_visualizer import download as download_module
 from flickr8k_visualizer import ingestion as ingestion_module
-from flickr8k_visualizer.config import REPOSITORY_ROOT
+from flickr8k_visualizer.config import REPOSITORY_ROOT, Settings
 from flickr8k_visualizer.dataset_lock import (
     DatasetLock,
     DatasetShard,
@@ -28,7 +28,6 @@ from flickr8k_visualizer.ingestion import (
     read_image_metadata,
     stable_sample_id,
 )
-from flickr8k_visualizer.visual_search import visual_settings
 
 TRACKED_LOCK_PATH = REPOSITORY_ROOT / "datasets" / "flickr8k.lock.json"
 
@@ -210,7 +209,7 @@ def test_reingestion_invalidates_the_visual_ready_marker(tmp_path: Path) -> None
         ],
     )
     data_dir = tmp_path / "prepared"
-    visual_ready = visual_settings(data_dir).visual_ready_path
+    visual_ready = Settings.for_data_dir(data_dir).visual_ready_path
     visual_ready.parent.mkdir(parents=True)
     visual_ready.write_text("previously published identity\n", encoding="utf-8")
 

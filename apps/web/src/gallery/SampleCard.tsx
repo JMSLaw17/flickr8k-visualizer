@@ -1,8 +1,9 @@
 import type { SampleSummary } from '../dataset/api'
-import { formatDimensions, formatSimilarity, formatSplit } from '../dataset/formatters'
-import SampleLink from '../detail/SampleLink'
+import { formatDimensions, formatSimilarity } from '../dataset/formatters'
 import DatasetImage from '../shared/DatasetImage'
 import HighlightedText from '../shared/HighlightedText'
+import SampleLink from '../shared/SampleLink'
+import SplitBadge from '../shared/SplitBadge'
 
 /** A length filter can match most captions; keep cards scannable. */
 const MAX_MATCHED_CAPTIONS = 2
@@ -24,9 +25,7 @@ function SampleCard({ sample, query = '' }: SampleCardProps) {
       <div className="sample-card__media">
         <DatasetImage className="sample-card__image" src={sample.thumbnail_url} alt="" />
         <div className="sample-card__badges">
-          <span className={`split-badge split-badge--${sample.split}`}>
-            {formatSplit(sample.split)}
-          </span>
+          <SplitBadge split={sample.split} />
           {sample.duplicate && <span className="duplicate-badge">Duplicate</span>}
         </div>
       </div>

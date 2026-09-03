@@ -21,7 +21,9 @@ from .db import (
     connect_database,
     filter_clauses,
     load_summary_records,
+    open_database,
 )
+from .fs import write_atomic
 from .model_lock import ClipModelLock, load_model_lock
 from .models import SampleFilters
 
@@ -145,20 +147,9 @@ def _load_rgb_image(path: Path) -> Image.Image:
         return ImageOps.exif_transpose(image).convert("RGB")
 
 
-def visual_settings(data_dir: Path) -> Settings:
-    """Settings for a data directory; the single source of truth for the
-    visual-search layout."""
-    data_dir = data_dir.expanduser().resolve()
-    return Settings(
-        data_dir=data_dir,
-        database_path=data_dir / "flickr8k.sqlite3",
-        manifest_path=data_dir / "manifest.json",
-    )
-
-
 def invalidate_visual_ready(data_dir: Path) -> None:
     """Unpublish the visual index; call when replacing the base database."""
-    visual_settings(data_dir).visual_ready_path.unlink(missing_ok=True)
+    Settings.for_data_dir(data_dir).visual_ready_path.unlink(missing_ok=True)
 
 
 def prepare_visual_search(data_dir: Path, *, force: bool = False) -> dict[str, Any]:
@@ -167,7 +158,7 @@ def prepare_visual_search(data_dir: Path, *, force: bool = False) -> dict[str, A
 
     dataset_lock = load_dataset_lock()
     model_lock = load_model_lock()
-    settings = visual_settings(data_dir)
+    settings = Settings.for_data_dir(data_dir)
     data_dir = settings.data_dir
     manifest_path = settings.visual_manifest_path
     ready_path = settings.visual_ready_path
@@ -218,8 +209,8 @@ def write_visual_manifest(
         "built_at": datetime.now(UTC).isoformat(),
     }
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_atomic(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    _write_atomic(ready_path, _ready_identity(model_lock, dataset_lock))
+    write_atomic(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    write_atomic(ready_path, _ready_identity(model_lock, dataset_lock))
     return manifest
 
 
@@ -246,26 +237,23 @@ def visual_identity_matches_locks(manifest_path: Path, ready_path: Path) -> bool
 
 @contextmanager
 def _visual_connection(database_path: Path) -> Iterator[sqlite3.Connection]:
-    """Open the database for a visual query, translating SQLite failures.
+    """Open the database for a visual query.
 
-    Only a missing embeddings table means the visual index is absent; other
-    operational errors (e.g. a locked database) are not fixed by rerunning
-    data preparation.
+    Only a missing embeddings table means the visual index is absent; any
+    other failure means the database itself is not ready.
     """
-    if not database_path.is_file():
-        raise DatabaseUnavailableError("Dataset database is not ready")
-
     try:
-        with closing(connect_database(database_path)) as connection:
+        with open_database(database_path) as connection:
             yield connection
-    except sqlite3.OperationalError as error:
-        if "no such table: clip_embeddings" in str(error):
+    except DatabaseUnavailableError as error:
+        cause = error.__cause__
+        if isinstance(cause, sqlite3.OperationalError) and (
+            "no such table: clip_embeddings" in str(cause)
+        ):
             raise VisualIndexUnavailableError(
                 "Visual search index is missing"
-            ) from error
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
-    except sqlite3.Error as error:
-        raise DatabaseUnavailableError("Dataset database is not ready") from error
+            ) from cause
+        raise
 
 
 def load_embedding(database_path: Path, sample_id: str) -> np.ndarray | None:
@@ -275,13 +263,30 @@ def load_embedding(database_path: Path, sample_id: str) -> np.ndarray | None:
     text encoder.
     """
     with _visual_connection(database_path) as connection:
-        row = connection.execute(
-            "SELECT vector FROM clip_embeddings WHERE sample_id = ?",
-            (sample_id,),
-        ).fetchone()
+        return _read_embedding(connection, sample_id)
 
+
+def _read_embedding(
+    connection: sqlite3.Connection, sample_id: str
+) -> np.ndarray | None:
+    """The stored embedding, or None for an unknown sample.
+
+    A known sample without one means the index is incomplete, which is a
+    visual-index failure rather than a missing sample.
+    """
+    row = connection.execute(
+        """
+        SELECT clip_embeddings.vector
+        FROM samples
+        LEFT JOIN clip_embeddings ON clip_embeddings.sample_id = samples.id
+        WHERE samples.id = ?
+        """,
+        (sample_id,),
+    ).fetchone()
     if row is None:
         return None
+    if row["vector"] is None:
+        raise VisualIndexUnavailableError(f"Sample {sample_id} has no stored embedding")
     return np.frombuffer(row["vector"], dtype=VECTOR_DTYPE)
 
 
@@ -330,25 +335,16 @@ def rank_neighbors(
             None,
         )
         if position is None:
-            row = connection.execute(
-                """
-                SELECT samples.id, clip_embeddings.vector
-                FROM samples
-                LEFT JOIN clip_embeddings
-                    ON clip_embeddings.sample_id = samples.id
-                WHERE samples.id = ?
-                """,
-                (sample_id,),
-            ).fetchone()
-            similarity = (
-                _rank_by_similarity([row], query_vector)[0][1]
-                if row is not None
-                else None
-            )
+            vector = _read_embedding(connection, sample_id)
+            query = np.asarray(query_vector, dtype=np.float32)
+            if vector is not None and vector.shape != query.shape:
+                raise VisualIndexUnavailableError(
+                    "Stored embeddings do not match the query dimension"
+                )
             return {
                 "previous_id": None,
                 "next_id": None,
-                "similarity": similarity,
+                "similarity": None if vector is None else float(vector @ query),
             }
 
     return {
@@ -447,9 +443,3 @@ def _ready_identity(model_lock: ClipModelLock, dataset_lock: DatasetLock) -> str
         f"{model_lock.revision}:{model_lock.preprocessing_version}"
         f":{dataset_lock.revision}\n"
     )
-
-
-def _write_atomic(path: Path, text: str) -> None:
-    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary_path.write_text(text, encoding="utf-8")
-    os.replace(temporary_path, path)

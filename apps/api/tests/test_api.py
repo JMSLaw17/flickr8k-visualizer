@@ -2,40 +2,16 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import write_prepared_identity
 from fastapi.testclient import TestClient
 
 from flickr8k_visualizer.config import Settings
-from flickr8k_visualizer.dataset_lock import load_dataset_lock
 from flickr8k_visualizer.db import (
     connect_database,
     initialize_database,
     materialize_duplicate_groups,
 )
 from flickr8k_visualizer.main import create_app
-
-
-def _write_prepared_identity(data_dir: Path, *, ready: bool = True) -> None:
-    dataset_lock = load_dataset_lock()
-    manifest = {
-        "dataset": {
-            "repo_id": dataset_lock.repo_id,
-            "revision": dataset_lock.revision,
-        },
-        "shards": [
-            {
-                "path": shard.repo_path,
-                "split": shard.split,
-                "size_bytes": shard.size_bytes,
-                "sha256": shard.sha256,
-                "row_count": shard.row_count,
-            }
-            for shard in dataset_lock.shards
-        ],
-    }
-    data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    if ready:
-        (data_dir / ".ready").write_text(f"{dataset_lock.revision}\n", encoding="utf-8")
 
 
 @pytest.fixture
@@ -46,7 +22,7 @@ def client(tmp_path: Path) -> TestClient:
     thumbnail_dir = data_dir / "thumbnails"
     image_dir.mkdir(parents=True)
     thumbnail_dir.mkdir()
-    _write_prepared_identity(data_dir)
+    write_prepared_identity(data_dir)
     (image_dir / "first image.jpg").write_bytes(b"original-one")
     (thumbnail_dir / "first image.jpg").write_bytes(b"thumbnail-one")
     (image_dir / "second.jpg").write_bytes(b"original-two")
@@ -650,7 +626,7 @@ def test_caption_search_rejects_invalid_queries(client: TestClient, query: str) 
 def overview_client(tmp_path: Path) -> TestClient:
     data_dir = tmp_path / "data"
     database_path = data_dir / "flickr8k.sqlite3"
-    _write_prepared_identity(data_dir)
+    write_prepared_identity(data_dir)
     initialize_database(database_path)
     with connect_database(database_path) as connection:
         connection.executemany(
@@ -996,7 +972,7 @@ def test_returns_service_unavailable_without_ready_marker(tmp_path: Path) -> Non
     data_dir = tmp_path / "data"
     database_path = data_dir / "flickr8k.sqlite3"
     initialize_database(database_path)
-    _write_prepared_identity(data_dir, ready=False)
+    write_prepared_identity(data_dir, ready=False)
     settings = Settings(
         data_dir=data_dir,
         database_path=database_path,
@@ -1014,7 +990,7 @@ def test_returns_service_unavailable_with_stale_ready_marker(tmp_path: Path) -> 
     data_dir = tmp_path / "data"
     database_path = data_dir / "flickr8k.sqlite3"
     initialize_database(database_path)
-    _write_prepared_identity(data_dir)
+    write_prepared_identity(data_dir)
     (data_dir / ".ready").write_text(f"{'0' * 40}\n", encoding="utf-8")
     settings = Settings(
         data_dir=data_dir,
@@ -1033,7 +1009,7 @@ def test_returns_service_unavailable_with_stale_manifest(tmp_path: Path) -> None
     data_dir = tmp_path / "data"
     database_path = data_dir / "flickr8k.sqlite3"
     initialize_database(database_path)
-    _write_prepared_identity(data_dir)
+    write_prepared_identity(data_dir)
     manifest_path = data_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["shards"][0]["sha256"] = "0" * 64

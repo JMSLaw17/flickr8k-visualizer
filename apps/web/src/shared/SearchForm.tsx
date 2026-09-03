@@ -10,7 +10,8 @@ interface SearchFormProps {
   /** Committed rank description and whether ranking can be served; omit to hide the field. */
   rank?: { value: string; ready: boolean }
   shortcutEnabled?: boolean
-  onSubmit: (query: string, rank: string) => void
+  /** The rank is passed only when the form has a ranking field. */
+  onSubmit: (query: string, rank?: string) => void
 }
 
 /** Caption search with an optional visual-ranking field; `/` focuses the search. */
@@ -61,7 +62,7 @@ function SearchForm({ filters, rank, shortcutEnabled = true, onSubmit }: SearchF
     const nextRank = normalizeCaptionQuery(draftRank)
     setDraftQuery(query)
     setDraftRank(nextRank)
-    onSubmit(query, nextRank)
+    onSubmit(query, rank ? nextRank : undefined)
   }
 
   return (

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import type { SampleDetail } from '../dataset/api'
 import { detail, jsonResponse } from '../test/fixtures'
@@ -31,12 +31,6 @@ const navigationDetails: Record<string, SampleDetail> = {
     previous_id: 'sample-b',
   },
 }
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  document.body.style.overflow = ''
-})
 
 function StrictModeDetailHarness() {
   const [isOpen, setIsOpen] = useState(true)

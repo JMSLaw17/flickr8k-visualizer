@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // JSDOM does not implement native dialog methods.
 const dialogFocusOrigins = new WeakMap<HTMLDialogElement, HTMLElement | null>()
@@ -45,4 +45,10 @@ if (!HTMLDialogElement.prototype.close) {
   })
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  document.body.style.overflow = ''
+  document.title = 'Flickr8k Explorer'
+})

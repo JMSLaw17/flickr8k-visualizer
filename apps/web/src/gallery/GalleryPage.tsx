@@ -3,11 +3,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isNotPreparedError, listSamples, type SamplePage } from '../dataset/api'
 import GallerySkeleton from './GallerySkeleton'
 import SampleCard from './SampleCard'
-import { filterChips, parseOffset, parseOrdering, type FilterChip } from '../dataset/filters'
-import { formatRecoveryHint, getErrorMessage } from '../dataset/formatters'
-import { isSampleDrawerOpen } from '../detail/sampleRoute'
+import {
+  describeOrdering,
+  filterChips,
+  orderingChips,
+  parseOffset,
+  parseOrdering,
+  type FilterChip,
+} from '../dataset/filters'
+import { getErrorMessage } from '../dataset/formatters'
 import EmptyResults from '../shared/EmptyResults'
+import ErrorCard from '../shared/ErrorCard'
 import FilterChips from '../shared/FilterChips'
+import { isSampleDrawerOpen } from '../shared/sampleRoute'
 import SearchForm from '../shared/SearchForm'
 import SplitSelect from '../shared/SplitSelect'
 import { useFilterParams } from '../shared/useFilterParams'
@@ -43,23 +51,9 @@ function GalleryPage() {
   // An ordering, by a description or by a reference image, sorts results by
   // CLIP similarity; it is not a filter and never changes which samples match.
   const ordering = parseOrdering(searchParams)
-  const committedRank = ordering.rank ?? ''
-  const rankActive = committedRank !== ''
-  const similarTo = ordering.similar_to ?? ''
-  const similarActive = similarTo !== ''
-  const orderingActive = rankActive || similarActive
-  const orderingLabel = rankActive
-    ? `similarity to “${committedRank}”`
-    : similarActive
-      ? `similarity to image ${similarTo}`
-      : ''
-  const chips: FilterChip[] = [
-    ...filterChips(filters),
-    ...(rankActive
-      ? [{ label: `Ranked by: “${committedRank}”`, keys: ['rank'] }]
-      : []),
-    ...(similarActive ? [{ label: `Similar to: ${similarTo}`, keys: ['similar_to'] }] : []),
-  ]
+  const orderingLabel = describeOrdering(ordering)
+  const orderingActive = orderingLabel !== ''
+  const chips: FilterChip[] = [...filterChips(filters), ...orderingChips(ordering)]
   const hasOtherFilters = chips.some((chip) => !chip.keys.includes('q'))
 
   useEffect(() => {
@@ -77,8 +71,8 @@ function GalleryPage() {
         limit: PAGE_SIZE,
         offset,
         ...filters,
-        rank: rankActive ? committedRank : undefined,
-        similar_to: similarActive ? similarTo : undefined,
+        rank: ordering.rank,
+        similar_to: ordering.similar_to,
       },
       controller.signal,
     )
@@ -104,7 +98,7 @@ function GalleryPage() {
       })
 
     return () => controller.abort()
-  }, [committedRank, filters, offset, rankActive, requestVersion, similarActive, similarTo])
+  }, [filters, offset, ordering.rank, ordering.similar_to, requestVersion])
 
   const setOffset = (nextOffset: number) => {
     updateParams((params) => {
@@ -157,7 +151,7 @@ function GalleryPage() {
         <div className="toolbar-controls">
           <SearchForm
             filters={filters}
-            rank={{ value: committedRank, ready: rankingReady }}
+            rank={{ value: ordering.rank ?? '', ready: rankingReady }}
             shortcutEnabled={!isSampleDrawerOpen(searchParams)}
             onSubmit={applySearch}
           />
@@ -176,32 +170,25 @@ function GalleryPage() {
       {status === 'loading' && <GallerySkeleton />}
 
       {status === 'error' && (
-        <div className="state-card" role="alert">
-          <span className="state-card__mark">!</span>
-          <h3>
-            {orderingActive
+        <ErrorCard
+          title={
+            orderingActive
               ? 'Couldn’t rank images'
               : committedQuery
                 ? 'Couldn’t search captions'
-                : 'Couldn’t load the dataset'}
-          </h3>
-          <p>{error}</p>
-          <p className="state-card__hint">{formatRecoveryHint(unprepared)}</p>
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={refresh}
-          >
-            Try again
-          </button>
-        </div>
+                : 'Couldn’t load the dataset'
+          }
+          message={error}
+          unprepared={unprepared}
+          onRetry={refresh}
+        />
       )}
 
       {status === 'ready' && page && page.items.length === 0 && (
         <EmptyResults
           query={committedQuery}
           hasOtherFilters={hasOtherFilters}
-          onClearSearch={() => applySearch('', committedRank)}
+          onClearSearch={() => applySearch('')}
           onClearFilters={resetView}
         />
       )}

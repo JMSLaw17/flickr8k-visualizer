@@ -6,16 +6,16 @@ import {
   type SampleDetail,
   type SampleDetailParams,
 } from '../dataset/api'
-import { parseOrdering, parseSampleFilters, withOrdering } from '../dataset/filters'
+import { parseOrdering, parseSampleFilters } from '../dataset/filters'
 import {
   formatDimensions,
   formatFileDescription,
   formatSimilarity,
-  formatSplit,
   getErrorMessage,
 } from '../dataset/formatters'
 import DatasetImage from '../shared/DatasetImage'
 import HighlightedText from '../shared/HighlightedText'
+import SplitBadge from '../shared/SplitBadge'
 import { isEditableTarget } from '../shared/interaction'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -51,7 +51,7 @@ function DetailPanel({
   const pendingNavigationFocus = useRef<NavigationDirection | null>(null)
   const readySample = status === 'ready' && sample?.id === sampleId ? sample : null
   // Key requests by filter and ordering values, not the caller's object identity.
-  const filtersKey = withOrdering(filterSearchParams(filters), filters).toString()
+  const filtersKey = filterSearchParams(filters).toString()
 
   const closeDetail = () => {
     if (dialogRef.current?.open) dialogRef.current.close()
@@ -225,9 +225,7 @@ function DetailPanel({
 
             <div className="detail-content">
               <div className="detail-heading">
-                <span className={`split-badge split-badge--${readySample.split}`}>
-                  {formatSplit(readySample.split)}
-                </span>
+                <SplitBadge split={readySample.split} />
                 <p className="eyebrow">Dataset sample</p>
                 <h2 id="detail-title">{readySample.source_id}</h2>
                 {typeof readySample.similarity === 'number' && (

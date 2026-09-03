@@ -33,26 +33,31 @@ export function useFilterParams() {
     })
   }
 
-  /** Apply a caption search and rank; re-submitting the current ones refreshes instead. */
-  const applySearch = (query: string, rank: string) => {
+  /**
+   * Apply a caption search, and a rank when the caller has one; an omitted
+   * rank is left as it is. Re-submitting the current values refreshes instead.
+   */
+  const applySearch = (query: string, rank?: string) => {
     const isCurrent = (key: string, value: string) =>
       value ? searchParams.get(key) === value : !searchParams.has(key)
-    if (isCurrent('q', query) && isCurrent('rank', rank) && !searchParams.has('offset')) {
+    const rankIsCurrent = rank === undefined || isCurrent('rank', rank)
+    if (isCurrent('q', query) && rankIsCurrent && !searchParams.has('offset')) {
       refresh()
       return
     }
 
     updateParams((params) => {
       params.delete('offset')
-      for (const [key, value] of [
-        ['q', query],
-        ['rank', rank],
-      ] as const) {
-        if (value) params.set(key, value)
-        else params.delete(key)
+      if (query) params.set('q', query)
+      else params.delete('q')
+      if (rank === undefined) return
+      if (rank) {
+        params.set('rank', rank)
+        // There is one ordering at a time: a description replaces a reference image.
+        params.delete('similar_to')
+      } else {
+        params.delete('rank')
       }
-      // There is one ordering at a time: a description replaces a reference image.
-      if (rank) params.delete('similar_to')
     })
   }
 

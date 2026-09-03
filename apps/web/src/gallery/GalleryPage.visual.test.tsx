@@ -1,28 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
-import App from '../App'
 import type { SampleSummary } from '../dataset/api'
 import { detail, jsonResponse, pageResponse, summary } from '../test/fixtures'
+import { renderApp } from '../test/render'
 
 const rankedItem: SampleSummary = { ...summary, similarity: 0.2839 }
-
-function renderApp(initialEntry = '/') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <App />
-    </MemoryRouter>,
-  )
-}
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  document.body.style.overflow = ''
-  document.title = 'Flickr8k Explorer'
-})
 
 it('loads a URL-ranked listing, announces progress, and labels scores', async () => {
   const second: SampleSummary = {

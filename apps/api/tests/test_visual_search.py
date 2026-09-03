@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import numpy as np
 import pytest
+from conftest import write_prepared_identity
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -22,7 +23,6 @@ from flickr8k_visualizer.clip_encoder import (
     download_model_files,
 )
 from flickr8k_visualizer.config import REPOSITORY_ROOT, Settings
-from flickr8k_visualizer.dataset_lock import load_dataset_lock
 from flickr8k_visualizer.db import connect_database, initialize_database
 from flickr8k_visualizer.download import verify_file
 from flickr8k_visualizer.main import _LazyTextEncoder, create_app
@@ -81,33 +81,10 @@ class FakeImageEncoder:
         return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
-def _write_prepared_identity(data_dir: Path) -> None:
-    dataset_lock = load_dataset_lock()
-    manifest = {
-        "dataset": {
-            "repo_id": dataset_lock.repo_id,
-            "revision": dataset_lock.revision,
-        },
-        "shards": [
-            {
-                "path": shard.repo_path,
-                "split": shard.split,
-                "size_bytes": shard.size_bytes,
-                "sha256": shard.sha256,
-                "row_count": shard.row_count,
-            }
-            for shard in dataset_lock.shards
-        ],
-    }
-    data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (data_dir / ".ready").write_text(f"{dataset_lock.revision}\n", encoding="utf-8")
-
-
 def _prepare_visual_settings(tmp_path: Path) -> Settings:
     data_dir = tmp_path / "data"
     database_path = data_dir / "flickr8k.sqlite3"
-    _write_prepared_identity(data_dir)
+    write_prepared_identity(data_dir)
     initialize_database(database_path)
     with closing(connect_database(database_path)) as connection, connection:
         connection.executemany(
@@ -499,6 +476,25 @@ def test_rank_unavailable_when_coverage_is_incomplete(tmp_path: Path) -> None:
 
     with _make_client(settings) as client:
         assert client.get("/api/samples", params={"rank": "up"}).status_code == 503
+
+
+def test_incomplete_coverage_is_unavailable_from_every_ranking_path(
+    tmp_path: Path,
+) -> None:
+    settings = _prepare_visual_settings(tmp_path)
+    with closing(connect_database(settings.database_path)) as connection, connection:
+        connection.execute("DELETE FROM clip_embeddings WHERE sample_id = 'sample-d'")
+
+    with _make_client(settings) as client:
+        # sample-d sits outside the train filter, so its similarity comes from
+        # the single-sample fallback rather than the ranked listing.
+        detail = client.get(
+            "/api/samples/sample-d", params={"rank": "up", "split": "train"}
+        )
+        reference = client.get("/api/samples", params={"similar_to": "sample-d"})
+
+    assert detail.status_code == 503
+    assert reference.status_code == 503
 
 
 def test_rank_unavailable_without_embeddings_table(tmp_path: Path) -> None:

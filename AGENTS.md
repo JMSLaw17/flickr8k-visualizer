@@ -15,11 +15,14 @@ the code.
 - `apps/web/src/dataset`: API calls, filters, and data formatting
 - `apps/web/src/gallery`: gallery page and its components
 - `apps/web/src/overview`: overview page, charts, and summaries
-- `apps/web/src/detail`: sample drawer, links, and drawer routing
-- `apps/web/src/shared`: UI and interaction code shared by features
+- `apps/web/src/detail`: sample drawer and its routed wrapper
+- `apps/web/src/shared`: UI and interaction code shared by features, including
+  sample links, the drawer URL contract, and route metadata
 - `apps/web/src/test`: shared test setup and cross-feature integration tests
 - `datasets/flickr8k.lock.json`: tracked dataset revision and shard integrity metadata
 - `models/clip.lock.json`: tracked visual-search model revision and file integrity metadata
+- Both lock files are symlinks; the canonical copies live in
+  `apps/api/src/flickr8k_visualizer/`, where the package reads them
 - `data/flickr8k`: generated dataset artifacts; ignored by Git
 
 ## Commands

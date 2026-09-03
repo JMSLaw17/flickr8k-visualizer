@@ -9,7 +9,6 @@ import {
   MAX_CAPTION_QUERY_LENGTH,
   normalizeCaptionQuery,
   parseOffset,
-  parseRank,
   parseSampleFilters,
 } from './filters'
 
@@ -56,12 +55,12 @@ describe('parseOffset', () => {
   })
 })
 
-describe('parseRank', () => {
+describe('parseOrdering rank normalization', () => {
   it('normalizes and caps rank without adding it to sample filters', () => {
     const rank = `  ${'🐕'.repeat(MAX_CAPTION_QUERY_LENGTH + 1)}  `
     const params = new URLSearchParams({ rank })
 
-    expect(parseRank(params)).toBe('🐕'.repeat(MAX_CAPTION_QUERY_LENGTH))
+    expect(parseOrdering(params).rank).toBe('🐕'.repeat(MAX_CAPTION_QUERY_LENGTH))
     expect(parseSampleFilters(params)).toEqual({})
   })
 })

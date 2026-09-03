@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 
 import {
+  filterSearchParams,
   getOverview,
   isNotPreparedError,
   type DatasetOverview,
@@ -13,20 +14,20 @@ import {
   filterChips,
   galleryPath,
   parseOrdering,
-  withOrdering,
   SPLITS,
   withoutFilters,
 } from '../dataset/filters'
 import {
   formatDimensions,
-  formatRecoveryHint,
   formatSplit,
   getErrorMessage,
 } from '../dataset/formatters'
-import SampleLink from '../detail/SampleLink'
-import { isSampleDrawerOpen } from '../detail/sampleRoute'
 import DatasetImage from '../shared/DatasetImage'
 import EmptyResults from '../shared/EmptyResults'
+import ErrorCard from '../shared/ErrorCard'
+import SampleLink from '../shared/SampleLink'
+import { isSampleDrawerOpen } from '../shared/sampleRoute'
+import SplitBadge from '../shared/SplitBadge'
 import FilterChips from '../shared/FilterChips'
 import SearchForm from '../shared/SearchForm'
 import SplitSelect from '../shared/SplitSelect'
@@ -100,8 +101,7 @@ function OverviewPage() {
   // so a scoped upper bound must not survive the merge.
   const scopedPath: ScopedPath = (extra, clear = []) =>
     galleryPath({ ...withoutFilters(filters, clear), ...extra }, ordering)
-  const clearSampleFilters = () =>
-    setSearchParams(withOrdering(new URLSearchParams(), ordering))
+  const clearSampleFilters = () => setSearchParams(filterSearchParams(ordering))
 
   return (
     <section className="overview-section" aria-labelledby="overview-title">
@@ -116,7 +116,7 @@ function OverviewPage() {
           <SearchForm
             filters={filters}
             shortcutEnabled={!isSampleDrawerOpen(searchParams)}
-            onSubmit={(query) => applySearch(query, ordering.rank ?? '')}
+            onSubmit={applySearch}
           />
           <SplitSelect value={filters.split} onChange={setSplit} />
         </div>
@@ -130,121 +130,120 @@ function OverviewPage() {
       {status === 'loading' && !overview && <OverviewSkeleton />}
 
       {status === 'error' && (
-        <div className="state-card" role="alert">
-          <span className="state-card__mark">!</span>
-          <h3>Couldn’t load the overview</h3>
-          <p>{error}</p>
-          <p className="state-card__hint">{formatRecoveryHint(unprepared)}</p>
-          <button className="button button--primary" type="button" onClick={refresh}>
-            Try again
-          </button>
-        </div>
+        <ErrorCard
+          title="Couldn’t load the overview"
+          message={error}
+          unprepared={unprepared}
+          onRetry={refresh}
+        />
       )}
 
-      {/* Data quality is dataset-wide, so it stays even when nothing matches. */}
-      {status !== 'error' && overview && empty && (
+      {/* Previous content stays in place, dimmed and inert, while a new scope
+          loads. Data quality is dataset-wide, so it stays even when nothing
+          matches. */}
+      {status !== 'error' && overview && (
         <div className={contentClass} aria-busy={busy} inert={busy}>
-          <EmptyResults
-            query={filters.q ?? ''}
-            hasOtherFilters={chips.some((chip) => !chip.keys.includes('q'))}
-            onClearSearch={() => applySearch('', ordering.rank ?? '')}
-            onClearFilters={clearSampleFilters}
-          />
-          {hasSamplesInOtherSplits && (
-            <OverviewGroup title="Samples" description="0 samples in scope">
-              <div className="overview-grid">
-                <SplitComparison
-                  selectedSplit={filters.split}
-                  counts={overview.split_counts}
-                  scopedPath={scopedPath}
-                />
-              </div>
-            </OverviewGroup>
-          )}
-          <DataQuality duplicates={overview.duplicates} />
-        </div>
-      )}
-
-      {/* Previous charts stay in place, dimmed and inert, while a new scope loads. */}
-      {status !== 'error' && overview && !empty && (
-        <div className={contentClass} aria-busy={busy} inert={busy}>
-          <OverviewGroup
-            title="Samples"
-            description={`${overview.sample_count.toLocaleString()} samples${scopeSuffix}`}
-          >
-            <div className="overview-grid">
-              <SplitComparison
-                selectedSplit={filters.split}
-                counts={overview.split_counts}
-                scopedPath={scopedPath}
+          {empty ? (
+            <>
+              <EmptyResults
+                query={filters.q ?? ''}
+                hasOtherFilters={chips.some((chip) => !chip.keys.includes('q'))}
+                onClearSearch={() => applySearch('')}
+                onClearFilters={clearSampleFilters}
               />
-
-              <ChartCard
-                title="Aspect ratio"
-                note="Width ÷ height; below 1 is portrait, above 1 is landscape."
+              {hasSamplesInOtherSplits && (
+                <OverviewGroup title="Samples" description="0 samples in scope">
+                  <div className="overview-grid">
+                    <SplitComparison
+                      selectedSplit={filters.split}
+                      counts={overview.split_counts}
+                      scopedPath={scopedPath}
+                    />
+                  </div>
+                </OverviewGroup>
+              )}
+            </>
+          ) : (
+            <>
+              <OverviewGroup
+                title="Samples"
+                description={`${overview.sample_count.toLocaleString()} samples${scopeSuffix}`}
               >
-                <Histogram
-                  bins={overview.aspect_ratios}
-                  countNoun="samples"
-                  binHref={(bin) =>
-                    scopedPath(binFilters(bin, 'min_ratio', 'max_ratio'), [
-                      'min_ratio',
-                      'max_ratio',
-                    ])
-                  }
-                />
-              </ChartCard>
+                <div className="overview-grid">
+                  <SplitComparison
+                    selectedSplit={filters.split}
+                    counts={overview.split_counts}
+                    scopedPath={scopedPath}
+                  />
 
-              <ChartCard
-                title="Image dimensions"
-                note="Most common exact sizes in pixels (width × height), after EXIF orientation."
-                wide
+                  <ChartCard
+                    title="Aspect ratio"
+                    note="Width ÷ height; below 1 is portrait, above 1 is landscape."
+                  >
+                    <Histogram
+                      bins={overview.aspect_ratios}
+                      countNoun="samples"
+                      binHref={(bin) =>
+                        scopedPath(binFilters(bin, 'min_ratio', 'max_ratio'), [
+                          'min_ratio',
+                          'max_ratio',
+                        ])
+                      }
+                    />
+                  </ChartCard>
+
+                  <ChartCard
+                    title="Image dimensions"
+                    note="Most common exact sizes in pixels (width × height), after EXIF orientation."
+                    wide
+                  >
+                    <DimensionList dimensions={overview.dimensions} scopedPath={scopedPath} />
+                  </ChartCard>
+                </div>
+              </OverviewGroup>
+
+              <OverviewGroup
+                title="Captions"
+                description={`${overview.caption_count.toLocaleString()} captions${scopeSuffix}`}
               >
-                <DimensionList dimensions={overview.dimensions} scopedPath={scopedPath} />
-              </ChartCard>
-            </div>
-          </OverviewGroup>
+                <div className="overview-grid">
+                  <ChartCard
+                    title="Caption length"
+                    note="Whitespace-separated tokens per caption. Filters select samples, and every caption of each matching sample is counted."
+                    wide
+                  >
+                    <Histogram
+                      bins={overview.caption_lengths}
+                      countNoun="captions"
+                      binHref={(bin) =>
+                        scopedPath(binFilters(bin, 'min_words', 'max_words'), [
+                          'min_words',
+                          'max_words',
+                        ])
+                      }
+                    />
+                  </ChartCard>
 
-          <OverviewGroup
-            title="Captions"
-            description={`${overview.caption_count.toLocaleString()} captions${scopeSuffix}`}
-          >
-            <div className="overview-grid">
-              <ChartCard
-                title="Caption length"
-                note="Whitespace-separated tokens per caption. Filters select samples, and every caption of each matching sample is counted."
-                wide
-              >
-                <Histogram
-                  bins={overview.caption_lengths}
-                  countNoun="captions"
-                  binHref={(bin) =>
-                    scopedPath(binFilters(bin, 'min_words', 'max_words'), [
-                      'min_words',
-                      'max_words',
-                    ])
-                  }
-                />
-              </ChartCard>
+                  <ChartCard
+                    title="Common caption terms"
+                    note="Most frequent words after removing short and function words. Filters select samples, and every caption of each matching sample is counted."
+                    wide
+                  >
+                    <BarList
+                      columns
+                      items={overview.top_terms.map(({ term, count }) => ({
+                        key: term,
+                        label: term,
+                        count,
+                        href: scopedPath({ term }),
+                      }))}
+                    />
+                  </ChartCard>
+                </div>
+              </OverviewGroup>
 
-              <ChartCard
-                title="Common caption terms"
-                note="Most frequent words after removing short and function words. Filters select samples, and every caption of each matching sample is counted."
-                wide
-              >
-                <BarList
-                  columns
-                  items={overview.top_terms.map(({ term, count }) => ({
-                    key: term,
-                    label: term,
-                    count,
-                    href: scopedPath({ term }),
-                  }))}
-                />
-              </ChartCard>
-            </div>
-          </OverviewGroup>
-
+            </>
+          )}
           <DataQuality duplicates={overview.duplicates} />
         </div>
       )}
@@ -430,9 +429,7 @@ function DataQuality({ duplicates }: { duplicates: DuplicateSummary }) {
                         alt=""
                       />
                       <span className="duplicate-sample__meta">
-                        <span className={`split-badge split-badge--${member.split}`}>
-                          {formatSplit(member.split)}
-                        </span>
+                        <SplitBadge split={member.split} />
                         <span className="duplicate-sample__id">{member.source_id}</span>
                       </span>
                     </SampleLink>

@@ -5,6 +5,7 @@ import {
   filterSearchParams,
   type DatasetSplit,
   type DistributionBin,
+  type Ordering,
   type SampleFilters,
 } from './api'
 import { formatSplit } from './formatters'
@@ -12,43 +13,28 @@ import { formatSplit } from './formatters'
 export const SPLITS: readonly DatasetSplit[] = ['train', 'validation', 'test']
 export const MAX_CAPTION_QUERY_LENGTH = 200
 
-/** Ranking description from the `rank` URL parameter; empty means ID order. */
-export function parseRank(params: URLSearchParams): string {
-  return normalizeCaptionQuery(params.get('rank') ?? '')
-}
-
-/** Reference sample ID from the `similar_to` URL parameter; empty means none. */
-export function parseSimilarTo(params: URLSearchParams): string {
-  return (params.get('similar_to') ?? '').trim()
-}
-
-/**
- * How results are ordered: by similarity to a description, by similarity to
- * a reference image, or by ID when empty. Ordering never changes which
- * samples match, only their order.
- */
-export interface Ordering {
-  rank?: string
-  similar_to?: string
-}
-
-export const ORDERING_KEYS = ['rank', 'similar_to'] as const
-
+/** The ordering in the URL; a reference image wins over a description. */
 export function parseOrdering(params: URLSearchParams): Ordering {
-  const similarTo = parseSimilarTo(params)
-  const rank = parseRank(params)
-  // There is one ordering at a time; a reference image wins over a description.
+  const similarTo = (params.get('similar_to') ?? '').trim()
   if (similarTo) return { similar_to: similarTo }
+  const rank = normalizeCaptionQuery(params.get('rank') ?? '')
   return rank ? { rank } : {}
 }
 
-/** The given search params with the ordering set on top. */
-export function withOrdering(query: URLSearchParams, ordering: Ordering): URLSearchParams {
-  for (const key of ORDERING_KEYS) {
-    const value = ordering[key]
-    if (value) query.set(key, value)
+/** What the ordering compares against, for summaries; empty for ID order. */
+export function describeOrdering(ordering: Ordering): string {
+  if (ordering.similar_to) return `similarity to image ${ordering.similar_to}`
+  if (ordering.rank) return `similarity to “${ordering.rank}”`
+  return ''
+}
+
+/** Removable chip for the active ordering, if any. */
+export function orderingChips(ordering: Ordering): FilterChip[] {
+  if (ordering.similar_to) {
+    return [{ label: `Similar to: ${ordering.similar_to}`, keys: ['similar_to'] }]
   }
-  return query
+  if (ordering.rank) return [{ label: `Ranked by: “${ordering.rank}”`, keys: ['rank'] }]
+  return []
 }
 
 type NumericFilterKey = Exclude<keyof SampleFilters, 'split' | 'q' | 'term'>
@@ -101,7 +87,7 @@ export function parseOffset(params: URLSearchParams, pageSize: number): number {
 
 /** Gallery path with the given filters and optional ordering. */
 export function galleryPath(filters: SampleFilters, ordering: Ordering = {}): string {
-  const encoded = withOrdering(filterSearchParams(filters), ordering).toString()
+  const encoded = filterSearchParams({ ...filters, ...ordering }).toString()
   return encoded ? `/?${encoded}` : '/'
 }
 
