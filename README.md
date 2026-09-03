@@ -76,15 +76,15 @@ npm run prepare:data
 ```
 
 Prepared data lives under `data/flickr8k/`, which Git ignores. What to
-expect, measured on a laptop with a broadband connection: about four minutes
-of download for the shards and the model together, half a minute to
-extract the images and build thumbnails, and under a minute of embedding on
-Apple silicon, where it runs on the GPU, or a few minutes on a CPU-only
-machine. Embedding logs progress every 512 images, and large downloads log
-their progress and transfer rate at each quarter, so a slow link is visible.
-If the rate is far below your connection's, check for a VPN: some VPN
-endpoints throttle downloads from Hugging Face to a small fraction of the
-normal speed.
+expect, measured on a laptop: the 1.7 GB download takes about four minutes
+at 8 MB/s and fifteen at 2 MB/s, extracting the images and building
+thumbnails takes half a minute, and loading the model and embedding the
+images takes about a minute on Apple silicon, where it runs on the GPU, or a
+few minutes on a CPU-only machine. Embedding logs progress every 512 images,
+and large downloads log their progress and transfer rate at each quarter, so
+a slow link is visible. If the rate is far below your connection's, check for
+a VPN: some VPN endpoints throttle downloads from Hugging Face to a small
+fraction of the normal speed.
 
 A transfer the server cuts short is resumed automatically, up to five
 attempts. The command is also safe to interrupt and rerun: each finished
@@ -105,8 +105,10 @@ port 5173, which proxies API and media requests to the API.
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). Starting the app before
-preparing the data is fine: the pages explain what to run.
+Open [http://localhost:5173](http://localhost:5173). The app can run before
+or during preparation: the pages explain what to run, browsing works as soon
+as the dataset stage finishes, and ranking follows once the visual stage
+does, with no restart needed.
 
 ## Verification
 
@@ -237,7 +239,9 @@ configuration and tokenizer files, not the other framework formats), each
 file's byte size and SHA-256 checksum, the embedding dimension, and a
 preprocessing version. Preparation downloads these files into
 `data/flickr8k/visual-search/model/` and rejects anything that does not match
-the lock. After preparation, queries run entirely locally.
+the lock. After preparation, queries run entirely locally. The first ranked
+query after the API starts loads the model and takes a few seconds; later
+ones take a fraction of a second.
 
 Embeddings are stored per sample in the `clip_embeddings` SQLite table as
 little-endian float32 blobs. Images are decoded with EXIF orientation applied
